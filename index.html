@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lecteur de DAC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* VOICE: outil de bureau, calme et précis, comme un bon formulaire administratif
+   IDEA: le bordereau de collecte — un DAC qu'on pointe ligne à ligne contre le reporting
+   PICTURE: la zone de dépôt puis le tableau de pointage, qui est l'outil lui-même
+   COLOUR and TYPE: blanc, encre ardoise, sarcelle La Drisse en dominante, ambre pour « à régler » ; Inter Tight + Inter
+   LAYOUT: une colonne de travail, étapes empilées, tableau pleine largeur */
+:root{color-scheme:light dark;
+--bg:light-dark(#ffffff,#0f1719);--panel:light-dark(#f3f7f7,#172224);--line:light-dark(#d9e3e4,#2a3a3d);
+--ink:light-dark(#14212a,#e6eef0);--mute:light-dark(#5b6b73,#9fb1b6);
+--teal:light-dark(#127a7d,#4cc3c5);--tealbg:light-dark(#e3f3f3,#123335);
+--amber:light-dark(#a35a00,#f0b45c);--amberbg:light-dark(#fff3e0,#3a2a12);
+--red:light-dark(#b3261e,#ff8a80);--redbg:light-dark(#fdecea,#3a1916);--green:light-dark(#1f7a3a,#7fd69a)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Inter,system-ui,sans-serif;overflow-x:clip}
+.wrap{max-width:1240px;margin:0 auto;padding:clamp(20px,3vw,40px) max(4vw,16px) 64px}
+h1,h2{font-family:"Inter Tight",Inter,sans-serif;line-height:1.05;margin:0;text-wrap:balance}
+h1{font-size:clamp(32px,4.4vw,46px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:22px;font-weight:600;margin-bottom:12px}
+.lead{color:var(--mute);margin:10px 0 24px;max-width:70ch}
+.step{border-top:1px solid var(--line);padding:24px 0}
+.drop{border:2px dashed var(--teal);background:var(--tealbg);border-radius:14px;padding:28px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:20px;align-items:center;cursor:pointer;transition:background .2s}
+.drop.over{background:light-dark(#cdeced,#1a4446)}
+.drop svg{width:72px;height:72px}
+.drop b{font-size:18px;display:block}
+.drop span{color:var(--mute)}
+.files{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-top:16px}
+.f{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px}
+.f b{display:block;font-size:13px;color:var(--mute);font-weight:500}
+.f.ok{border-color:var(--teal)}
+.opts{display:flex;flex-wrap:wrap;gap:10px 24px;margin-top:16px;font-size:15px}
+.opts label{display:flex;gap:8px;align-items:center;min-height:44px}
+input[type=checkbox]{width:20px;height:20px;accent-color:var(--teal)}
+button{font:600 15px Inter,sans-serif;min-height:44px;padding:0 18px;border-radius:10px;border:1px solid var(--teal);background:var(--teal);color:light-dark(#fff,#062022);cursor:pointer}
+button.ghost{background:transparent;color:var(--teal)}
+button.small{min-height:36px;padding:0 12px;font-size:14px}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+select,input[type=text],textarea{font:16px Inter,sans-serif;min-height:44px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);max-width:100%}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+.k{background:var(--panel);border-radius:12px;padding:14px 16px}
+.k em{font-style:normal;font-family:"Inter Tight",sans-serif;font-size:34px;font-weight:600;display:block;line-height:1.1}
+.k span{font-size:14px;color:var(--mute)}
+.k.warn em{color:var(--amber)}.k.good em{color:var(--teal)}
+.issue{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 16px;align-items:center;background:var(--amberbg);border-radius:10px;padding:12px 14px;margin-bottom:8px}
+.issue.info{background:var(--panel)}
+.issue .src{font-size:13px;color:var(--mute)}
+.issue .act{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.dac{border:1px solid var(--line);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.dac header{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;padding:12px 14px;background:var(--panel)}
+.dac header b{font-size:17px}
+.dac header span{font-size:14px;color:var(--mute)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:500;color:var(--mute);padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.tag{display:inline-block;font-size:12.5px;font-weight:600;border-radius:99px;padding:2px 9px;white-space:nowrap}
+.t-new{background:var(--tealbg);color:var(--teal)}.t-same{background:var(--panel);color:var(--mute)}
+.t-diff{background:var(--amberbg);color:var(--amber)}.t-bad{background:var(--redbg);color:var(--red)}
+.out{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.msg{font-size:14px;color:var(--mute);margin-top:10px}
+.msg.err{color:var(--red)}
+details{margin-top:8px}summary{cursor:pointer;font-weight:600;min-height:44px;display:flex;align-items:center}
+.corr td{font-size:13.5px}
+.hide{display:none}
+.scroll{overflow-x:auto}
+@media(max-width:600px){.drop{grid-template-columns:1fr;text-align:center}.drop svg{margin:auto}.issue{grid-template-columns:1fr}
+table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px}.stack td{display:flow-root;border:0;padding:3px 10px;padding-inline-start:8.5em;text-align:start}.stack td::before{content:attr(data-l);float:inline-start;width:7.5em;margin-inline-start:-8em;color:var(--mute)}.stack td:empty{display:none}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+<script>new MutationObserver(()=>{for(const c of document.querySelectorAll('.stack td:not([data-l])')){let i=0,p=c;while(p=p.previousElementSibling)i+=p.colSpan;c.dataset.l=c.closest('table').rows[0].cells[i]?.textContent||''}}).observe(document,{childList:true,subtree:true})</script>
+</head>
+<body>
+<div class="wrap">
+  <h1>Lecteur de DAC</h1>
+  <p class="lead">Tout se passe dans ton navigateur : les fichiers ne sont envoyés nulle part. Dépose les DAC de la période avec le reporting clients, le reporting Marché SNCF et les registres des clients concernés. L'outil remplit le poids, le N° de bon et la quantité sur les lignes prévues du reporting, et ajoute les collectes aux registres déposés.</p>
+
+  <section class="step">
+    <h2>1. Fichiers</h2>
+    <label class="drop" id="drop" for="pick">
+      <svg viewBox="0 0 72 72" aria-hidden="true"><rect x="14" y="8" width="40" height="52" rx="4" fill="none" stroke="currentColor" stroke-width="3" opacity=".35"/><rect x="20" y="14" width="40" height="52" rx="4" fill="var(--bg)" stroke="var(--teal)" stroke-width="3"/><path d="M28 28h24M28 36h24M28 44h16" stroke="var(--teal)" stroke-width="3" stroke-linecap="round"/><circle cx="54" cy="54" r="12" fill="var(--teal)"/><path d="M54 48v12M48 54h12" stroke="var(--bg)" stroke-width="3" stroke-linecap="round"/></svg>
+      <div><b>Glisse ici les DAC (PDF), les reportings et les registres Excel</b><span>ou clique pour les choisir. Tu peux en ajouter en plusieurs fois.</span></div>
+    </label>
+    <input type="file" id="pick" multiple accept=".pdf,.xlsx" class="hide">
+    <div class="files" id="files"></div>
+    <div class="opts">
+      <label><input type="checkbox" id="optEcraser"> Remplacer les valeurs déjà saisies</label>
+      <label><input type="checkbox" id="optZeros"> Mettre 0 sur les lignes prévues absentes du DAC</label>
+      <label><input type="checkbox" id="optRegOui"> Mettre OUI dans la colonne REGISTRE du reporting</label>
+      <button id="btnClear" class="ghost small" type="button">Tout vider</button>
+    </div>
+    <p class="msg" id="loadMsg"></p>
+  </section>
+
+  <section class="step hide" id="stepCheck">
+    <h2>2. Contrôle</h2>
+    <div class="kpis" id="kpis"></div>
+    <div id="issues"></div>
+    <div id="dacs"></div>
+  </section>
+
+  <section class="step hide" id="stepOut">
+    <h2>3. Fichiers mis à jour</h2>
+    <div class="out" id="outBtns"></div>
+    <p class="msg" id="outMsg"></p>
+  </section>
+
+  <section class="step">
+    <details id="corrBox">
+      <summary>Correspondances enregistrées</summary>
+      <p class="msg">Chaque fois que tu indiques à quoi correspond un client, un déchet, un contenant ou un exutoire, l'outil le retient dans ce navigateur et ne te le redemande plus. Pour que tout le monde ait les mêmes, télécharge le fichier correspondances.json et remplace celui qui est à côté de la page.</p>
+      <div class="scroll"><table class="corr"><thead><tr><th>Type</th><th>Sur le DAC</th><th>Dans le reporting</th><th></th></tr></thead><tbody id="corrBody"></tbody></table></div>
+      <div class="out" style="margin-top:12px"><button class="ghost small" id="btnCopyCorr" type="button">Télécharger correspondances.json</button><button class="ghost small" id="btnShowImport" type="button">Importer un fichier de correspondances</button></div>
+      <input type="file" id="importFile" accept=".json" class="hide">
+      <p class="msg" id="corrMsg"></p>
+    </details>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script>
+/* Lecteur de DAC — moteur (lecture DAC, lecture/écriture xlsx, rapprochement) */
+(function (root) {
+  'use strict';
+
+  /* ---------- outils ---------- */
+  const N = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+  const pad = n => String(n).padStart(2, '0');
+  const serialToIso = n => { const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 864e5); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); };
+  const frToIso = s => { const m = /(\d{2})\/(\d{2})\/(\d{4})/.exec(s || ''); return m ? m[3] + '-' + m[2] + '-' + m[1] : null; };
+  const isoToFr = s => s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '';
+  const round = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
+  const xmlEsc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const xmlUnesc = s => String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16))).replace(/&amp;/g, '&');
+
+  /* ---------- correspondances par défaut ---------- */
+  const DEFAULTS = {
+    clients: {},
+    flux: {
+      'CARTONS': 'Cartons|', 'CARTON': 'Cartons|', 'GOBELET CARTON': 'Cartons|GOBELETS', 'GOBELETS CARTON': 'Cartons|GOBELETS', 'GOBELETS': 'Cartons|GOBELETS',
+      'PLASTIQUES': 'Plastiques|', 'PLASTIQUE': 'Plastiques|', 'PILES': 'Piles|', 'VERRES': 'Verres|', 'VERRE': 'Verres|',
+      'PAPIERS': 'Papiers|', 'PAPIER': 'Papiers|', 'PAPIERS CONFIDENTIELS': 'Papiers|CONFIDENTIELS', 'PAPIER CONFIDENTIEL': 'Papiers|CONFIDENTIELS', 'CONFIDENTIELS': 'Papiers|CONFIDENTIELS',
+      'NEONS': 'Ampoules|', 'AMPOULES': 'Ampoules|', 'DIB': 'DIB|', 'CANETTES': 'Aluminium|CANETTES', 'CANETTES ALUMINIUM': 'Aluminium|CANETTES',
+      'CAPSULES CAFES': 'Poids Autres|CAPSULES CAFE', 'CAPSULES CAFE': 'Poids Autres|CAPSULES CAFE',
+      'EMBALLAGES RECYCLABLES': 'Emballages Recyclables|', 'EMBALLAGE RECYCLABLE': 'Emballages Recyclables|',
+      'DECHETS DE TABLE': 'Bio Déchets|', 'BIODECHETS': 'Bio Déchets|', 'BIO DECHETS': 'Bio Déchets|',
+      'BOIS': 'Bois|', 'FERRAILLE': 'Ferrailles|', 'FERRAILLES': 'Ferrailles|', 'DEEE': 'DEEE|', 'CARTOUCHES': 'Cartouches|', 'MEGOTS': 'Ordures Ménagères|MEGOTS'
+    },
+    cont: {},
+    sncfSites: { 'SNCF GC NICE': 'GARE NICE VILLE', 'SNCF TGV ST ROCH': 'TC TGV NICE ST-ROCH TGV', 'SNCF GC CANNES': 'GARE CANNES' },
+    sncfFlux: {
+      'EMBALLAGES RECYCLABLES': 'EMBALLAGE RECYCLABLE', 'DIB': 'DIB/OM', 'BOUTEILLE PLASTIQUE': 'BOUTEILLES PLASTIQUE', 'BOUTEILLES PLASTIQUE': 'BOUTEILLES PLASTIQUE',
+      'CANETTES': 'CANETTES ALUMINIUM', 'CARTONS': 'CARTON', 'CARTON': 'CARTON', 'BIODECHETS': 'BIODECHETS', 'DECHETS DE TABLE': 'BIODECHETS',
+      'VERRES': 'VERRE', 'PAPIERS': 'PAPIER', 'BOIS': 'BOIS', 'GOBELET CARTON': 'GOBELETS CARTON', 'CAPSULES CAFES': 'CAPSULES CAFE', 'FILM PLASTIQUE': 'FILM PLASTIQUE'
+    },
+    sncfCont: {}
+  };
+  function mergeCorr(saved) {
+    const c = {};
+    for (const k of Object.keys(DEFAULTS)) c[k] = Object.assign({}, DEFAULTS[k], (saved && saved[k]) || {});
+    return c;
+  }
+
+  /* ---------- lecture d'un DAC (éléments texte positionnés) ---------- */
+  // items : [{p, x, y, s}]  (y croissant vers le haut, comme pdf.js)
+  function toLines(items) {
+    const its = items.filter(i => i.s && i.s.trim()).slice().sort((a, b) => a.p - b.p || b.y - a.y || a.x - b.x);
+    const lines = [];
+    for (const it of its) {
+      const L = lines[lines.length - 1];
+      if (L && L.p === it.p && Math.abs(L.y - it.y) <= 2.5) L.items.push(it); else lines.push({ p: it.p, y: it.y, items: [it] });
+    }
+    for (const L of lines) { L.items.sort((a, b) => a.x - b.x); L.text = L.items.map(i => i.s).join(' ').replace(/\s+/g, ' ').trim(); }
+    return lines;
+  }
+  const txt = (L, x0, x1) => L.items.filter(i => i.x >= x0 && i.x < x1).map(i => i.s).join(' ').replace(/\s+/g, ' ').trim();
+
+  function parseDac(items) {
+    const lines = toLines(items);
+    const find = re => lines.findIndex(L => re.test(L.text));
+    const dac = { bon: '', client: '', adresse: '', date: null, lignes: [], destinataires: [], agent: '', erreurs: [] };
+    const m = /N°\s*(\d{6,})/.exec(lines.slice(0, 12).map(l => l.text).join(' '));
+    if (m) dac.bon = m[1];
+    const i1 = find(/^1\.\s*Producteur/i), i2 = find(/^2\.\s*Transporteur/i), i3 = find(/^3\.\s*Collecte/i), i4 = find(/^4\.\s*Destinataire/i);
+    // labels lus dans une section : libellé à gauche (x<110), valeur à droite
+    function fields(a, b, xmax) {
+      const out = []; let cur = null;
+      for (let k = a + 1; k < (b < 0 ? lines.length : b); k++) {
+        const L = lines[k];
+        const lab = L.items.find(i => i.x < 110 && /:\s*$/.test(i.s));
+        const val = txt(L, 110, xmax);
+        if (lab) { cur = { label: N(lab.s), lines: val ? [val] : [] }; out.push(cur); }
+        else if (cur && val && L.items.every(i => i.x >= 110)) cur.lines.push(val);
+      }
+      return out;
+    }
+    if (i1 >= 0) {
+      const f = fields(i1, i2, 999);
+      const rs = f.find(x => x.label.startsWith('RAISON SOCIALE')); if (rs) dac.client = rs.lines.join(' ');
+      const ad = f.find(x => x.label.startsWith('ADRESSE')); if (ad) dac.adresse = ad.lines.join(' · ');
+    }
+    if (i2 >= 0) {
+      const lab = lines.slice(i2, i3 < 0 ? undefined : i3).flatMap(L => L.items).find(i => /Date de passage/i.test(i.s));
+      if (lab) {
+        const cands = items.filter(i => i.p === 1 && /\d{2}\/\d{2}\/\d{4}/.test(i.s) && i.x > lab.x && Math.abs(i.y - lab.y) < 8);
+        if (cands.length) dac.date = frToIso(cands[0].s);
+      }
+      if (!dac.date) { const d = /Date de passage\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i.exec(lines.map(l => l.text).join(' ')); if (d) dac.date = frToIso(d[1]); }
+    }
+    if (i3 >= 0) {
+      const hk = lines.findIndex((L, k) => k > i3 && /Contenant/i.test(L.text) && /Flux/i.test(L.text));
+      if (hk >= 0) {
+        const H = lines[hk].items;
+        const xs = ['Contenant', 'Flux', 'Quantit', 'Volume'].map(w => { const it = H.find(i => i.s.indexOf(w) >= 0); return it ? it.x : null; });
+        if (xs.every(v => v != null)) {
+          const end = i4 < 0 ? lines.length : i4;
+          for (let k = hk + 1; k < end; k++) {
+            const L = lines[k];
+            if (L.items.some(i => /^Contenant/i.test(i.s))) continue; // en-tête répété sur une 2e page
+            const col = j => txt(L, xs[j] - 6, j < 3 ? xs[j + 1] - 6 : 9999);
+            const r = { contenant: col(0), flux: col(1), qteTxt: col(2), poidsTxt: col(3) };
+            if (!r.flux && !r.qteTxt && !r.poidsTxt && dac.lignes.length) { dac.lignes[dac.lignes.length - 1].contenant += ' ' + r.contenant; continue; }
+            if (!r.flux && r.contenant && !r.qteTxt) { const prev = dac.lignes[dac.lignes.length - 1]; if (prev) { prev.flux += ' ' + r.contenant; continue; } }
+            dac.lignes.push(r);
+          }
+        } else dac.erreurs.push("Colonnes du tableau des collectes introuvables");
+      } else dac.erreurs.push("Tableau des collectes introuvable");
+    }
+    for (const r of dac.lignes) {
+      r.qte = r.qteTxt ? parseFloat(r.qteTxt.replace(',', '.')) : 0;
+      if (isNaN(r.qte)) { r.qte = 0; dac.erreurs.push('Quantité illisible : ' + r.qteTxt); }
+      r.poidsKg = 0; r.unite = '';
+      if (r.poidsTxt) {
+        const pm = /([\d.,]+)\s*([A-Za-z0-9³]*)/.exec(r.poidsTxt);
+        const v = pm ? parseFloat(pm[1].replace(',', '.')) : NaN; const u = pm ? N(pm[2]) : '';
+        r.unite = u;
+        if (isNaN(v)) dac.erreurs.push('Poids illisible : ' + r.poidsTxt);
+        else if (u === 'KG' || u === '') r.poidsKg = v;
+        else if (u === 'T' || u === 'TONNE' || u === 'TONNES') r.poidsKg = v * 1000;
+        else { r.poidsKg = null; dac.erreurs.push('Unité non gérée (' + r.poidsTxt + ') pour ' + r.flux); }
+      }
+      r.contenant = r.contenant.trim(); r.flux = r.flux.trim();
+    }
+    if (i4 >= 0) {
+      const endk = lines.findIndex((L, k) => k > i4 && L.items.some(i => i.x < 110 && /^Le\s*:/.test(i.s)));
+      const f = fields(i4, endk, 390);
+      let d = null;
+      for (const x of f) {
+        if (x.label.startsWith('FLUX')) { d = { flux: x.lines.join(' ').split(',').map(s => s.trim()).filter(Boolean), nom: '', adresse: '', agrement: '' }; dac.destinataires.push(d); }
+        else if (d && x.label.startsWith('RAISON SOCIALE')) d.nom = x.lines.join(' ');
+        else if (d && x.label.startsWith('ADRESSE')) d.adresse = x.lines.join(' ');
+        else if (d && x.label.startsWith('NUMERO D AGREMENT')) d.agrement = x.lines.join(' ');
+      }
+    }
+    const ag = items.find(i => / - [A-Z0-9]{5,9} - /.test(i.s)); if (ag) dac.agent = ag.s.split(' - ')[0].trim();
+    for (const r of dac.lignes) { const d = dac.destinataires.find(x => x.flux.some(f => N(f) === N(r.flux))); r.destinataire = d || null; }
+    if (!dac.bon) dac.erreurs.push('N° de bon introuvable');
+    if (!dac.client) dac.erreurs.push('Client introuvable');
+    if (!dac.date) dac.erreurs.push('Date de passage introuvable');
+    if (!dac.lignes.length) dac.erreurs.push('Aucune ligne de collecte lue');
+    return dac;
+  }
+
+  /* ---------- xlsx ---------- */
+  async function openXlsx(JSZip, buf) {
+    const zip = await JSZip.loadAsync(buf);
+    const wbXml = await zip.file('xl/workbook.xml').async('string');
+    const rels = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+    const relMap = {};
+    for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = /Id="([^"]+)"/.exec(m[0]), t = /Target="([^"]+)"/.exec(m[0]);
+      if (id && t) relMap[id[1]] = t[1].replace(/^\/?xl\//, '').replace(/^\//, '');
+    }
+    const sheets = [];
+    for (const m of wbXml.matchAll(/<sheet\b[^>]*>/g)) {
+      const name = xmlUnesc((/name="([^"]*)"/.exec(m[0]) || [])[1] || '');
+      const rid = (/r:id="([^"]+)"/.exec(m[0]) || [])[1];
+      if (rid && relMap[rid]) sheets.push({ name, path: 'xl/' + relMap[rid] });
+    }
+    const sst = [];
+    const sf = zip.file('xl/sharedStrings.xml');
+    if (sf) {
+      const s = await sf.async('string');
+      for (const m of s.matchAll(/<si>([\s\S]*?)<\/si>/g)) {
+        const body = m[1].replace(/<rPh\b[\s\S]*?<\/rPh>/g, '');
+        sst.push(xmlUnesc([...body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(t => t[1]).join('')));
+      }
+    }
+    return { zip, sheets, sst, xml: {} };
+  }
+  async function sheetXml(wb, name) {
+    const sh = wb.sheets.find(s => s.name === name);
+    if (!sh) return null;
+    if (!(name in wb.xml)) wb.xml[name] = await wb.zip.file(sh.path).async('string');
+    return wb.xml[name];
+  }
+  const colNum = c => [...c].reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0);
+  // lit les lignes ; cols = liste de lettres à lire ; fromRow/toRow facultatifs
+  function readRows(xml, sst, cols, fromRow, toRow) {
+    const want = new Set(cols), out = [];
+    const reRow = /<row r="(\d+)"([^>]*?)(\/>|>([\s\S]*?)<\/row>)/g;
+    let m;
+    while ((m = reRow.exec(xml))) {
+      const r = +m[1];
+      if (fromRow && r < fromRow) continue;
+      if (toRow && r > toRow) break;
+      if (!m[4]) continue;
+      const row = { r };
+      for (const c of m[4].matchAll(/<c r="([A-Z]+)\d+"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        if (!want.has(c[1]) || c[3] == null) continue;
+        const t = (/\bt="([^"]+)"/.exec(c[2]) || [])[1];
+        let v;
+        if (t === 'inlineStr') v = xmlUnesc([...c[3].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(x => x[1]).join(''));
+        else { const vv = /<v>([\s\S]*?)<\/v>/.exec(c[3]); if (!vv) continue; v = vv[1]; if (t === 's') v = sst[+v]; else if (t === 'str' || t === 'e') v = xmlUnesc(v); else if (t === 'b') v = v === '1'; else v = +v; }
+        row[c[1]] = v;
+      }
+      out.push(row);
+    }
+    return out;
+  }
+  function cellXml(ref, attrs, v) {
+    attrs = attrs.replace(/\s*\bt="[^"]*"/, '');
+    if (v && typeof v === 'object') { if (v.s != null) attrs = /\bs="/.test(attrs) ? attrs.replace(/\bs="\d+"/, 's="' + v.s + '"') : attrs + ' s="' + v.s + '"'; v = v.v; }
+    if (v === null || v === undefined || v === '') return '<c r="' + ref + '"' + attrs + '/>';
+    if (typeof v === 'number') return '<c r="' + ref + '"' + attrs + '><v>' + v + '</v></c>';
+    return '<c r="' + ref + '"' + attrs + ' t="inlineStr"><is><t xml:space="preserve">' + xmlEsc(v) + '</t></is></c>';
+  }
+  // edits : Map(rowNum -> {COL: valeur})
+  function applyEdits(xml, edits) {
+    return xml.replace(/<row r="(\d+)"([^>]*?)(\/>|>([\s\S]*?)<\/row>)/g, (all, rs, attrs, _e, body) => {
+      const e = edits.get(+rs); if (!e) return all;
+      let b = body || '';
+      for (const col of Object.keys(e)) {
+        const ref = col + rs;
+        const re = new RegExp('<c r="' + ref + '"([^>]*?)(?:\\/>|>([\\s\\S]*?)<\\/c>)');
+        const m = re.exec(b);
+        if (m) b = b.slice(0, m.index) + cellXml(ref, m[1], e[col]) + b.slice(m.index + m[0].length);
+        else {
+          const n = colNum(col); let pos = b.length;
+          for (const c of b.matchAll(/<c r="([A-Z]+)\d+"/g)) if (colNum(c[1]) > n) { pos = c.index; break; }
+          b = b.slice(0, pos) + cellXml(ref, '', e[col]) + b.slice(pos);
+        }
+      }
+      return '<row r="' + rs + '"' + attrs + '>' + b + '</row>';
+    });
+  }
+
+
+  // Mise en page identique : chaque cellule écrite prend le style de la même colonne
+  // sur la dernière ligne déjà remplie de même modèle (même style en colonne A).
+  function styleEdits(xml, edits) {
+    if (!edits.size) return edits;
+    const maxR = Math.max(...edits.keys()), minR = Math.min(...edits.keys());
+    const info = new Map();
+    const reRow = /<row r="(\d+)"[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g; let m;
+    while ((m = reRow.exec(xml))) {
+      const r = +m[1]; if (r < minR - 3000) continue; if (r > maxR) break;
+      const cells = {};
+      for (const c of (m[2] || '').matchAll(/<c r="([A-Z]+)\d+"([^>]*?)(\/>|>([\s\S]*?)<\/c>)/g)) {
+        const st = (/\bs="(\d+)"/.exec(c[2]) || [])[1];
+        const has = c[3] !== '/>' && /<v>[^<]+<\/v>|<t[^>]*>[^<]+<\/t>/.test(c[4] || '');
+        cells[c[1]] = { s: st, has };
+      }
+      info.set(r, cells);
+    }
+    const out = new Map();
+    for (const [r, e] of edits) {
+      const me = info.get(r) || {}; const keyA = me.A ? me.A.s : undefined;
+      const o = {};
+      for (const col of Object.keys(e)) {
+        let st = null;
+        for (let k = r - 1; k >= minR - 3000 && k > 0; k--) {
+          const row = info.get(k); if (!row || !row.A || row.A.s !== keyA) continue;
+          const c = row[col]; if (c && c.has && c.s != null) { st = c.s; break; }
+        }
+        if (st == null && me[col] && me[col].s != null) st = me[col].s;
+        if (st == null) { const cols = Object.keys(me).filter(c => me[c].s != null); const prev = cols.filter(c => colNum(c) < colNum(col)).pop(); if (prev) st = me[prev].s; }
+        o[col] = st == null ? e[col] : { v: e[col], s: st };
+      }
+      out.set(r, o);
+    }
+    return out;
+  }
+
+  /* ---------- reconnaissance des reportings ---------- */
+  const HEAD = {
+    clients: { date: 'DATES', client: 'ENTREPRISES', dechet: 'DECHETS', detail: 'DECHETS DETAIL', poids: 'POIDS', bon: 'N BONS', cont: 'CONTENANT', qte: 'QTE', info: 'AUTRES INFORMATIONS' },
+    sncf: { date: 'DATE DE L OPERATION', bon: 'N DU BON DE COLLECTE', client: 'NOM DU SITE', dechet: 'MATIERE COLLECTEE', cont: 'TYPE DE CONTENANTS', qte: 'NOMBRE DE CONTENANTS', poids: 'QUANTITE COLLECTEE EN TONNE' }
+  };
+  const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  async function analyseReport(JSZip, buf, fileName) {
+    const wb = await openXlsx(JSZip, buf);
+    const rep = { fileName, wb, type: null, years: {}, lists: { clients: [], dechets: [], details: [], conts: [] } };
+    for (const sh of wb.sheets) {
+      if (!/^\d{4}$/.test(sh.name.trim())) continue;
+      const xml = await sheetXml(wb, sh.name);
+      const top = readRows(xml, wb.sst, LETTERS, 1, 40);
+      for (const row of top) {
+        const vals = {}; for (const L of LETTERS) if (row[L] != null) vals[N(row[L])] = L;
+        for (const type of ['clients', 'sncf']) {
+          const H = HEAD[type];
+          if (Object.values(H).every(h => vals[h])) {
+            const map = {}; for (const k in H) map[k] = vals[H[k]];
+            if (type === 'clients' && vals['REGISTRE']) map.registre = vals['REGISTRE'];
+            rep.type = type; rep.years[sh.name.trim()] = { sheet: sh.name, head: row.r, map };
+          }
+        }
+      }
+    }
+    if (!rep.type) return rep;
+    // listes de valeurs (onglet Table Matrice si présent)
+    const tm = wb.sheets.find(s => /table\s*matrice/i.test(s.name));
+    if (tm) {
+      const rows = readRows(await sheetXml(wb, tm.name), wb.sst, LETTERS);
+      const hdr = rows[0] || {};
+      const colOf = re => LETTERS.find(L => hdr[L] != null && re.test(N(hdr[L])));
+      const grab = L => L ? rows.slice(1).map(r => r[L]).filter(v => v != null && String(v).trim() !== '').map(String) : [];
+      if (rep.type === 'clients') {
+        rep.lists.clients = grab(colOf(/^ENTREPRISES/)); rep.lists.dechets = grab(colOf(/^DECHETS$/));
+        rep.lists.details = grab(colOf(/POIDS AUTRE/)); rep.lists.conts = grab(colOf(/^CONTENANTS/));
+      } else {
+        rep.lists.clients = grab(colOf(/^SITE$/)); rep.lists.dechets = grab(colOf(/^FLUX$/)); rep.lists.conts = grab(colOf(/^CONTENANT$/));
+      }
+    }
+    return rep;
+  }
+  async function reportRows(rep, year) {
+    const y = rep.years[year]; if (!y) return null;
+    if (!y.rows) {
+      const xml = await sheetXml(rep.wb, y.sheet);
+      const cols = Object.values(y.map);
+      y.rows = readRows(xml, rep.wb.sst, cols, y.head + 1).map(raw => {
+        const g = k => raw[y.map[k]];
+        const d = g('date');
+        return { r: raw.r, date: typeof d === 'number' ? serialToIso(d) : frToIso(String(d || '')), client: g('client'), dechet: g('dechet'), detail: rep.type === 'clients' ? g('detail') : '', cont: g('cont'), poids: g('poids'), bon: g('bon'), qte: g('qte'), info: rep.type === 'clients' ? g('info') : '' };
+      }).filter(r => r.date && r.client);
+    }
+    return y;
+  }
+
+  /* ---------- rapprochement ---------- */
+  const isSncf = (corr, dac) => !!corr.sncfSites[N(dac.client)] || /^SNCF\b/.test(N(dac.client));
+  const contKey = (client, flux, cont) => N(client) + '|' + N(flux) + '|' + N(cont);
+
+  // dacs : liste des DAC lus ; reports : {clients, sncf} ; opts : {zeros:bool, ecraser:bool}
+  async function plan(dacs, reports, corr, opts) {
+    const P = { assign: new Map(), issues: [], infos: [], lignes: [], vides: [], groupes: [] }; // assign: key(type|year|row) -> {...}
+    const groups = new Map(); // type|year|client|date -> {rows, dacs}
+    for (const dac of dacs) {
+      if (dac.erreurs.length && (!dac.client || !dac.date || !dac.lignes.length)) { P.issues.push({ kind: 'dac', dac, msg: dac.erreurs.join(' · ') }); continue; }
+      const type = isSncf(corr, dac) ? 'sncf' : 'clients';
+      const rep = reports[type];
+      if (!rep) { P.issues.push({ kind: 'fichier', dac, msg: type === 'sncf' ? 'Reporting Marché SNCF non déposé' : 'Reporting clients non déposé' }); continue; }
+      const year = dac.date.slice(0, 4);
+      const Y = await reportRows(rep, year);
+      if (!Y) { P.issues.push({ kind: 'fichier', dac, msg: 'Pas d\'onglet ' + year + ' dans ' + rep.fileName }); continue; }
+      // client
+      let target = type === 'sncf' ? corr.sncfSites[N(dac.client)] : corr.clients[N(dac.client)];
+      if (!target && type === 'clients') { const hit = Y.rows.find(r => N(r.client) === N(dac.client)); if (hit) target = hit.client; }
+      if (!target && type === 'clients' && /^UTILE\b/.test(N(dac.client))) { const mu = Y.rows.find(r => N(r.client) === 'MARCHE U'); if (mu) target = mu.client; }
+      if (!target) { P.issues.push({ kind: 'client', type, dac, msg: (type === 'sncf' ? 'Site SNCF inconnu : ' : 'Client inconnu : ') + dac.client, options: optionsClients(rep, Y) }); continue; }
+      const dayRows = Y.rows.filter(r => r.date === dac.date && N(r.client) === N(target));
+      const gk = type + '|' + year + '|' + N(target) + '|' + dac.date;
+      if (!groups.has(gk)) groups.set(gk, { type, year, rows: dayRows, dacs: [], target, date: dac.date });
+      groups.get(gk).dacs.push(dac);
+      if (!dayRows.length) { P.issues.push({ kind: 'jour', type, dac, msg: 'Aucune ligne prévue pour ' + target + ' le ' + isoToFr(dac.date) + ' dans le reporting' }); continue; }
+      for (const l of dac.lignes) {
+        const fluxMap = type === 'sncf' ? corr.sncfFlux : corr.flux;
+        const fm = fluxMap[N(target) + '|' + N(l.flux)] || fluxMap[N(l.flux)];
+        const ligne = { dac, l, type, target, row: null, status: '' };
+        P.lignes.push(ligne);
+        if (!fm) { ligne.status = 'flux'; P.issues.push({ kind: 'flux', type, dac, l, target, msg: 'Déchet « ' + l.flux + ' » : à quoi correspond-il ?', options: optionsFlux(rep, Y) }); continue; }
+        const [dech, det] = type === 'sncf' ? [fm, ''] : fm.split('|');
+        let c = dayRows.filter(r => N(r.dechet) === N(dech) && N(r.detail) === N(det));
+        if (c.length > 1) {
+          const ck = type === 'sncf' ? corr.sncfCont[N(target) + '|' + N(l.contenant)] || corr.sncfCont[N(l.contenant)] : corr.cont[contKey(target, l.flux, l.contenant)] || corr.cont[contKey(dac.client, l.flux, l.contenant)];
+          if (ck) {
+            const [kc, ki] = String(ck).split('§');
+            const c2 = c.filter(r => N(r.cont) === N(kc) && (ki === undefined || N(r.info) === N(ki)));
+            if (c2.length) c = c2.length > 1 ? c2 : c2;
+          }
+          if (c.length > 1) {
+            const same = c.filter(r => N(r.cont) === N(l.contenant)); if (same.length === 1) c = same;
+          }
+        }
+        if (!c.length) { ligne.status = 'absent'; P.issues.push({ kind: 'absent', type, dac, l, target, msg: l.flux + ' (' + fmtKg(l.poidsKg) + ') : pas de ligne « ' + dech + (det ? ' / ' + det : '') + ' » prévue pour ' + target + ' le ' + isoToFr(dac.date) }); continue; }
+        if (c.length > 1) {
+          // si plusieurs DAC du même jour : éviter les lignes déjà prises par un autre bon
+          ligne.status = 'choix';
+          P.issues.push({ kind: 'choix', type, dac, l, target, msg: l.flux + ' – ' + l.contenant + ' : plusieurs lignes possibles', options: c.map(r => ({ value: r.cont + (type === 'clients' && r.info ? '§' + r.info : ''), label: 'Ligne ' + r.r + ' · ' + (r.cont || '—') + (r.info ? ' · ' + r.info : '') })) });
+          continue;
+        }
+        ligne.row = c[0]; ligne.status = 'ok';
+        const key = type + '|' + year + '|' + c[0].r;
+        const a = P.assign.get(key) || { type, year, row: c[0], poidsKg: 0, qte: 0, bons: [], sources: [] };
+        if (l.poidsKg == null) { P.issues.push({ kind: 'unite', type, dac, l, msg: 'Poids non converti : ' + l.poidsTxt }); }
+        else a.poidsKg += l.poidsKg;
+        a.qte += l.qte;
+        if (!a.bons.includes(dac.bon)) a.bons.push(dac.bon);
+        a.sources.push(ligne);
+        P.assign.set(key, a);
+      }
+    }
+    // lignes prévues sans donnée dans le DAC -> 0
+    for (const [gk, g] of groups) {
+      let bon = g.dacs[0].bon;
+      if (g.dacs.length > 1 && g.type === 'clients') {
+        const ch = opts.bons && opts.bons[gk];
+        if (ch && g.dacs.some(d => d.bon === ch)) bon = ch;
+        const tot = g.dacs.reduce((s, d) => s + d.lignes.reduce((t, l) => t + (l.poidsKg || 0), 0), 0);
+        P.groupes.push({ gk, target: g.target, date: g.date, bon, dacs: g.dacs, totalKg: tot });
+        for (const a of P.assign.values()) if (a.type === 'clients' && g.rows.includes(a.row)) { a.bons = [bon].concat(a.bons.filter(b => b !== bon)); a.groupBon = bon; a.magasin = (g.dacs.find(d => d.bon === bon) || {}).client; }
+      }
+      for (const r of g.rows) {
+        const key = g.type + '|' + g.year + '|' + r.r;
+        if (P.assign.has(key)) continue;
+        if (r.poids != null && r.poids !== '') continue;
+        if (opts.zeros && g.type === 'clients') P.assign.set(key, { type: g.type, year: g.year, row: r, poidsKg: 0, qte: 0, bons: [bon], sources: [], zero: true, groupBon: g.dacs.length > 1 ? bon : null, magasin: (g.dacs.find(d => d.bon === bon) || {}).client });
+        else P.vides.push({ type: g.type, row: r, dac: g.dacs[0] });
+      }
+    }
+    // valeurs à écrire + état
+    for (const a of P.assign.values()) {
+      const Y = reports[a.type].years[a.year];
+      const newPoids = a.type === 'sncf' ? round(a.poidsKg / 1000, 4) : round(a.poidsKg, 3);
+      const newBon = 'N°' + a.bons[0];
+      a.vals = { poids: newPoids, bon: newBon, qte: a.qte };
+      const r = a.row;
+      const filled = r.poids != null && r.poids !== '';
+      const same = filled && +r.poids === newPoids && N(r.bon) === N(newBon) && (+r.qte || 0) === a.qte;
+      a.etat = !filled ? 'nouveau' : same ? 'identique' : 'different';
+      a.write = a.etat === 'nouveau' || (a.etat === 'different' && opts.ecraser);
+      if (a.bons.length > 1 && !a.groupBon) P.infos.push((r.client || '') + ' ligne ' + r.r + ' : ' + a.bons.length + ' bons cumulés (' + a.bons.join(', ') + ')');
+      a.cols = { poids: Y.map.poids, bon: Y.map.bon, qte: Y.map.qte };
+      if (a.type === 'clients' && a.groupBon && N(r.client) === 'MARCHE U' && Y.map.info && (!r.info || /^N\S* DAC SUR REGISTRE/i.test(N(r.info).replace(/^N /, 'N° ')) || /DAC SUR REGISTRE/i.test(String(r.info)))) {
+        a.vals.info = 'N° DAC SUR REGISTRE ' + String(a.magasin || '').replace(/^UTILE\s+/i, '').trim();
+        a.cols.info = Y.map.info;
+        if (a.etat === 'identique' && N(r.info) !== N(a.vals.info)) { a.etat = 'different'; a.write = opts.ecraser; }
+      }
+    }
+    return P;
+  }
+  const fmtKg = v => v == null ? '?' : (Math.round(v * 10) / 10).toLocaleString('fr-FR') + ' kg';
+  function optionsClients(rep, Y) {
+    const set = new Set(rep.lists.clients.map(s => s.trim()));
+    for (const r of Y.rows) set.add(String(r.client).trim());
+    return [...set].filter(Boolean).sort((a, b) => a.localeCompare(b, 'fr'));
+  }
+  function optionsFlux(rep, Y) {
+    if (rep.type === 'sncf') {
+      const set = new Set(rep.lists.dechets.map(s => s.trim())); for (const r of Y.rows) set.add(String(r.dechet).trim());
+      return [...set].filter(Boolean).sort().map(v => ({ value: v, label: v }));
+    }
+    const set = new Set();
+    for (const r of Y.rows) set.add(String(r.dechet).trim() + '|' + String(r.detail || '').trim());
+    return [...set].filter(s => s !== '|').sort((a, b) => a.localeCompare(b, 'fr')).map(v => ({ value: v, label: v.replace(/\|$/, '').replace('|', ' / ') }));
+  }
+
+  async function buildOutputs(reports, P, today, regRows) {
+    const out = [];
+    for (const type of ['clients', 'sncf']) {
+      const rep = reports[type]; if (!rep) continue;
+      const bySheet = new Map();
+      let n = 0;
+      for (const a of P.assign.values()) {
+        if (a.type !== type || !a.write) continue;
+        const Y = rep.years[a.year];
+        if (!bySheet.has(Y.sheet)) bySheet.set(Y.sheet, new Map());
+        const e = {}; e[a.cols.poids] = a.vals.poids; e[a.cols.bon] = a.vals.bon; e[a.cols.qte] = a.vals.qte; if (a.cols.info) e[a.cols.info] = a.vals.info;
+        if (regRows && regRows.has(a.row) && Y.map.registre) e[Y.map.registre] = 'OUI';
+        bySheet.get(Y.sheet).set(a.row.r, e); n++;
+      }
+      if (!n) continue;
+      for (const [sheet, edits] of bySheet) {
+        const xml = await sheetXml(rep.wb, sheet);
+        rep.wb.zip.file(rep.wb.sheets.find(s => s.name === sheet).path, applyEdits(xml, styleEdits(xml, edits)));
+      }
+      const data = await rep.wb.zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 }, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      let name = rep.fileName;
+      if (type === 'sncf') name = /^\d{8}/.test(name) ? name.replace(/^\d{8}/, today) : today + '-' + name;
+      out.push({ type, name, data, lignes: n });
+    }
+    return out;
+  }
+
+
+
+  /* Exutoires finaux par dépôt (destinataire du DAC) et par déchet — tableau La Drisse */
+  const EXU = {
+    SOFOVAR: 'SOFOVAR LA ROQUETTE\n1010 chemin de la Levade\n06550 LA ROQUETTE-SUR-SIAGNE',
+    AVENIR: 'S.A.S. AVENIR RECYCLAGE\n1220 route de la zone artisanale BP 553\n06516 CARROS CEDEX',
+    SVBE: 'SVBE Lieu-dit les Selves\n83340 FLASSANS-SUR-ISSOLE',
+    NERIVA: 'NERIVA VALORISATION\n1451 chemin de la Roseyre\n06390 CONTES',
+    INNOVAL: 'INNOVAL MEDITERANEE\nZI Les Estroublans - 11 avenue de Bruxelles\n13127 VITROLLES',
+    DERICHEBOURG: 'DERICHEBOURG (PURFER)\nZI de Carros - 15ème rue\n06510 CARROS',
+    PIZZORNO: 'PIZZORNO\nBoulevard Caussemille\n83300 DRAGUIGNAN',
+    TRIADE: 'TRIADE ELECTRONIQUE\n296 avenue Georges Vacher\n13790 ROUSSET',
+    VEOLIA: 'VEOLIA\n18ème rue\n06510 LE BROC',
+    MALTHA: 'MALTHA GLASS RECYCLING\n07170 LAVILLEDIEU',
+    MAURO: 'MAURO SAVIOLA VALECOBOIS\n8 via Leonardo da Vinci\n27036 MORTARA',
+    ARIANEO: 'ARIANEO\n33 boulevard de l\'Ariane\n06300 NICE',
+    VTRIADE: 'VEOLIA TRIADE ROUSSET\n296 avenue Georges Vacher\n13790 ROUSSET',
+    VALDELIA: 'VEOLIA VALDELIA\nVieux chemin de Bellet - 20 chemin de Saquier\n06200 NICE',
+    VALSUD: 'VALSUD\nRD 37 - 47BIS route de Malpasset\n83600 FRÉJUS'
+  };
+  const EXU_TABLE = {
+    '*': { 'FERRAILLE': 'SOFOVAR' },
+    FOLCO: { 'BOIS': 'AVENIR' },
+    BG: { 'BOIS': 'SVBE', 'PAPIER': 'NERIVA', 'PAPIER CONFIDENTIEL': 'NERIVA', 'PLASTIQUE': 'NERIVA', 'EMBALLAGE PLASTIQUE': 'NERIVA', 'CARTON': 'NERIVA', 'EMBALLAGE RECYCLABLE': 'NERIVA',
+      'CAPSULE CAFE': 'INNOVAL', 'DIB': 'INNOVAL', 'ORDURE MENAGERE': 'INNOVAL', 'ALUMINIUM CANETTE': 'DERICHEBOURG', 'VERRE': 'PIZZORNO', 'BIODECHET': 'PIZZORNO', 'ENCRE TONNER': 'TRIADE', 'PILE': 'TRIADE' },
+    VEOLIA: { 'PLASTIQUE': 'VEOLIA', 'EMBALLAGE PLASTIQUE': 'VEOLIA', 'PAPIER': 'VEOLIA', 'PAPIER CONFIDENTIEL': 'VEOLIA', 'CARTON': 'VEOLIA', 'VERRE': 'MALTHA', 'BOIS': 'MAURO', 'ORDURE MENAGERE': 'ARIANEO', 'DIB': 'ARIANEO',
+      'DEEE': 'VTRIADE', 'MOBILIER': 'VALDELIA', 'ENCRE TONNER': 'TRIADE', 'PILE': 'TRIADE' },
+    ALCHIMISTES: { 'BIODECHET': 'VALSUD' }
+  };
+  function depotOf(nom) {
+    const n = N(nom);
+    if (/^BG\b|BG ENVIRONNEMENT/.test(n)) return 'BG';
+    if (/VEOLIA/.test(n)) return 'VEOLIA';
+    if (/ALCHIMISTES/.test(n)) return 'ALCHIMISTES';
+    if (/FOLCO/.test(n)) return 'FOLCO';
+    if (/LA DRISSE/.test(n)) return 'VEOLIA'; // papiers déposés à La Drisse puis remis à Veolia
+    return null;
+  }
+  function exutoireAuto(destNom, type) {
+    const dep = depotOf(destNom || ''), t = N(type);
+    const k = (dep && EXU_TABLE[dep] && EXU_TABLE[dep][t]) || EXU_TABLE['*'][t];
+    return k ? EXU[k] : null;
+  }
+
+  /* ---------- registres déchets ---------- */
+  const REG_TYPES = {
+    'CARTONS|': 'CARTON', 'CARTONS|GOBELETS': 'CARTON', 'PAPIERS|': 'PAPIER', 'PAPIERS|CONFIDENTIELS': 'PAPIER CONFIDENTIEL', 'PLASTIQUES|': 'PLASTIQUE',
+    'VERRES|': 'VERRE', 'DIB|': 'DIB', 'ALUMINIUM|CANETTES': 'ALUMINIUM CANETTE', 'ALUMINIUM|': 'ALUMINIUM CANETTE', 'POIDS AUTRES|CAPSULES CAFE': 'CAPSULE CAFE',
+    'BIO DECHETS|': 'BIODECHET', 'BOIS|': 'BOIS', 'DEEE|': 'DEEE', 'FERRAILLES|': 'FERRAILLE', 'AMPOULES|': 'AMPOULE', 'NEONS|': 'NEON', 'PILES|': 'PILE',
+    'EMBALLAGES RECYCLABLES|': 'EMBALLAGE RECYCLABLE', 'ORDURES MENAGERES|': 'ORDURE MENAGERE', 'ORDURES MENAGERES|MEGOTS': 'ORDURE MENAGERE', 'MOBILIERS|': 'MOBILIER', 'VETEMENTS|': 'VETEMENT', 'CARTOUCHES|': 'ENCRE TONNER'
+  };
+  DEFAULTS.regTypes = REG_TYPES; DEFAULTS.registres = {}; DEFAULTS.exutoires = {};
+
+  const CODE_UE = { 'ALUMINIUM': '17.04.02', 'ALUMINIUM CANETTE': '17.04.02', 'BATTERIE SANS PLOMB': '16.06.02*', 'BIODECHET': '20.01.08', 'BOIS': '17.02.01', 'CARTON': '15.01.01', 'DEEE': '16.02.09*', 'EMBALLAGE RECYCLABLE': '15.01.06', 'ENCOMBRANT': '20.01.21', 'ENCRE TONNER': '08.03.18', 'FERRAILLE': '19.12.02', 'MOBILIER': '20.03.07', 'NEON': '20.01.21*', 'PAPIER': '20.01.01', 'PILE': '16.01.01*', 'PLASTIQUE': '15.01.02', 'VERRE': '15.01.07', 'VETEMENT': '20.01.10', 'ARCHIVE': '20.01.01', 'DIB': '/', 'CAPSULE CAFE': '/', 'EMBALLAGE PLASTIQUE': '15.01.02', 'ORDURE MENAGERE': '/', 'PAPIER CONFIDENTIEL': '20.01.01', 'AMPOULE': '20.01.21*' };
+  const TRAIT = { 'PAPIER': 'R.3', 'CARTON': 'R.3', 'BOIS': 'R.3', 'BIODECHET': 'R.3', 'ALUMINIUM CANETTE': 'R.4', 'PILE': 'R.1', 'CAPSULE CAFE': '/', 'DEEE': 'R.5', 'DIB': '/', 'EMBALLAGE PLASTIQUE': 'R.3', 'EMBALLAGE RECYCLABLE': 'R.3', 'ENCRE TONNER': 'R.5', 'FERRAILLE': 'R.4', 'MOBILIER': 'R.3', 'PLASTIQUE': 'R.3', 'VERRE': 'R.3', 'ORDURE MENAGERE': '/', 'PAPIER CONFIDENTIEL': 'R.3', 'AMPOULE': 'R.5', 'NEON': 'R.5', 'VETEMENT': 'R.3' };
+  const REG_HEAD = { type: 'TYPE DE DECHETS', date: 'DATE', bon: 'NUMERO BON DE COLLECTE', exu: 'EXUTOIRE FINAL', poids: 'POIDS EN TONNE' };
+  async function analyseRegistre(JSZip, buf, fileName) {
+    const wb = await openXlsx(JSZip, buf);
+    for (const sh of wb.sheets) {
+      const xml = await sheetXml(wb, sh.name);
+      const top = readRows(xml, wb.sst, LETTERS, 1, 15);
+      for (const row of top) {
+        const vals = {}; for (const L of LETTERS) if (row[L] != null) vals[N(row[L])] = L;
+        if (!Object.values(REG_HEAD).every(h => vals[h])) continue;
+        const map = {}; for (const k in REG_HEAD) map[k] = vals[REG_HEAD[k]];
+        map.code = vals['CODE UE']; map.trait = vals['TRAITEMENT REALISE'];
+        // nom du client : cellule sous « NOM DU CLIENT »
+        let client = '';
+        const lab = top.find(r => Object.keys(r).some(k => k !== 'r' && N(r[k]) === 'NOM DU CLIENT'));
+        if (lab) { const col = Object.keys(lab).find(k => k !== 'r' && N(lab[k]) === 'NOM DU CLIENT'); const nx = top.find(r => r.r > lab.r && r[col]); if (nx) client = String(nx[col]).trim(); }
+        // tableau Excel de la feuille
+        const relPath = sh.path.replace(/worksheets\/([^/]+)$/, 'worksheets/_rels/$1.rels');
+        let table = null;
+        const rf = wb.zip.file(relPath);
+        if (rf) {
+          const rels = await rf.async('string');
+          for (const m of rels.matchAll(/<Relationship\b[^>]*Target="([^"]*tables\/[^"]+)"[^>]*>/g)) {
+            const p = 'xl/' + m[1].replace(/^(\.\.\/)+/, '').replace(/^\/?xl\//, '');
+            const tx = await wb.zip.file(p).async('string');
+            const ref = (/<table\b[^>]*\bref="([A-Z]+)(\d+):([A-Z]+)(\d+)"/.exec(tx) || []);
+            if (ref.length && +ref[2] === row.r) table = { path: p, xml: tx, start: +ref[2], end: +ref[4] };
+          }
+        }
+        const rows = readRows(xml, wb.sst, LETTERS, row.r + 1);
+        const codes = { code: Object.assign({}, CODE_UE), trait: Object.assign({}, TRAIT) };
+        for (const [k, col] of [['code', map.code], ['trait', map.trait]]) {
+          if (!col) continue;
+          const fm = new RegExp('<c r="' + col + '\\d+"[^>]*>\\s*<f>([\\s\\S]*?)</f>').exec(xml);
+          if (fm) for (const p of xmlUnesc(fm[1]).matchAll(/="([^"]+)","([^"]*)"/g)) codes[k][N(p[1])] = p[2];
+        }
+        const lists = { exutoires: [], types: [] };
+        for (const r of rows) if (r[map.exu]) lists.exutoires.push(String(r[map.exu]));
+        const le = wb.sheets.find(s => /EXUTOIRE/i.test(s.name));
+        if (le) for (const r of readRows(await sheetXml(wb, le.name), wb.sst, LETTERS, 2)) for (const L of ['B', 'C']) if (r[L] && /\d{5}/.test(String(r[L]))) lists.exutoires.push(String(r[L]));
+        const cd = wb.sheets.find(s => /code\s*dechet/i.test(s.name));
+        if (cd) for (const r of readRows(await sheetXml(wb, cd.name), wb.sst, ['C'], 2)) if (r.C) lists.types.push(String(r.C).trim());
+        lists.exutoires = [...new Map(lists.exutoires.map(e => [N(e), e])).values()];
+        return { kind: 'registre', codes, fileName, buf: buf.slice ? buf.slice(0) : buf, wb, sheet: sh.name, head: row.r, map, client, table, rows, lists };
+      }
+    }
+    return null;
+  }
+
+  // lignes à ajouter dans les registres déposés
+  function planRegistres(P, registres, corr) {
+    const R = { parReg: new Map(), issues: [], reportingRows: new Set() };
+    if (!registres.length) return R;
+    const targets = [...new Set(P.lignes.filter(l => l.type === 'clients').map(l => l.target))];
+    for (const reg of registres) {
+      let t = corr.registres[N(reg.client)];
+      if (!t) t = targets.find(x => N(x) === N(reg.client));
+      if (!t && /CAP SUD/.test(N(reg.client))) t = targets.find(x => N(x) === 'MARCHE U');
+      if (!t && reg.client) { const nc = N(reg.client); t = targets.find(x => nc.includes(N(x)) || N(x).includes(nc)); }
+      reg.target = t || null;
+      R.parReg.set(reg, { lignes: [], deja: 0 });
+      if (!t) R.issues.push({ kind: 'registre', reg, msg: 'Registre « ' + (reg.client || reg.fileName) + ' » : aucun DAC de ce client dans les fichiers déposés. S\'il porte un autre nom dans le reporting, choisis-le :', options: targets.slice().sort() });
+    }
+    for (const reg of registres) {
+      if (!reg.target) continue;
+      const bucket = R.parReg.get(reg);
+      const isMU = N(reg.target) === 'MARCHE U';
+      const acc = new Map();
+      for (const l of P.lignes) {
+        if (l.type !== 'clients' || l.status !== 'ok' || N(l.target) !== N(reg.target)) continue;
+        if (!(l.l.poidsKg > 0)) continue;
+        const k = N(l.row.dechet) + '|' + N(l.row.detail);
+        const type = corr.regTypes[k] || corr.regTypes[N(l.row.dechet) + '|'];
+        if (!type) { if (!R.issues.some(i => i.kind === 'regtype' && i.k === k)) R.issues.push({ kind: 'regtype', reg, k, msg: 'Registre ' + reg.client + ' : quel type de déchet pour « ' + l.row.dechet + (l.row.detail ? ' ' + l.row.detail : '') + ' » ?', options: reg.lists.types }); continue; }
+        const ak = l.dac.bon + '|' + type;
+        const a = acc.get(ak) || { dac: l.dac, type, kg: 0, dests: [], rows: [] };
+        a.kg += l.l.poidsKg; if (l.l.destinataire && !a.dests.includes(l.l.destinataire)) a.dests.push(l.l.destinataire);
+        a.rows.push(l.row); acc.set(ak, a);
+      }
+      for (const a of acc.values()) {
+        const deja = reg.rows.some(r => r[reg.map.bon] && String(r[reg.map.bon]).includes(a.dac.bon) && N(r[reg.map.type]) === N(a.type));
+        if (deja) { bucket.deja++; continue; }
+        const d = a.dests[0];
+        let exu = d ? (corr.exutoires[N(d.nom) + '|' + N(a.type)] || exutoireAuto(d.nom, a.type) || corr.exutoires[N(d.nom)]) : exutoireAuto('', a.type);
+        if (!exu) {
+          const ik = 'exu|' + (d ? N(d.nom) : '') + '|' + N(a.type);
+          if (!R.issues.some(i => i.ik === ik)) R.issues.push({ kind: 'exutoire', ik, reg, dest: d, type: a.type, msg: 'Exutoire final à inscrire au registre pour ' + a.type + (d ? ' déposé chez « ' + d.nom + ' »' : ' (pas de destinataire sur le DAC)') + ' : choisis dans la liste ou « Autre » pour l\'écrire', options: (d ? [{ value: d.nom + (d.adresse ? '\n' + d.adresse : ''), label: 'Destinataire du DAC : ' + d.nom + (d.adresse ? ' ' + d.adresse : '') }] : []).concat(Object.values(EXU).map(e => ({ value: e, label: e })), reg.lists.exutoires.map(e => ({ value: e, label: e }))), libre: true, dac: a.dac });
+          continue;
+        }
+        const bonTxt = isMU ? String(a.dac.client).trim() + '\n' + 'N°' + a.dac.bon : 'N°' + a.dac.bon;
+        bucket.lignes.push({ type: a.type, date: a.dac.date, bon: bonTxt, exu, t: round(a.kg / 1000, 4), dac: a.dac });
+        for (const r of a.rows) R.reportingRows.add(r);
+      }
+      bucket.lignes.sort((x, y) => x.date.localeCompare(y.date) || x.bon.localeCompare(y.bon));
+    }
+    return R;
+  }
+
+  function shiftRef(ref, from, m) { return ref.replace(/(\$?[A-Z]{1,3}\$?)(\d+)/g, (all, c, r) => +r >= from ? c + (+r + m) : all); }
+  async function buildRegistre(JSZip, reg, lignes) {
+    const wb = await openXlsx(JSZip, reg.buf.slice ? reg.buf.slice(0) : reg.buf), sh = wb.sheets.find(s => s.name === reg.sheet);
+    let xml = await sheetXml(wb, reg.sheet);
+    const rowRe = /<row r="(\d+)"([^>]*?)(\/>|>([\s\S]*?)<\/row>)/g;
+    const rowsXml = new Map(); let m;
+    while ((m = rowRe.exec(xml))) rowsXml.set(+m[1], m[0]);
+    const tEnd = reg.table ? reg.table.end : Math.max(...reg.rows.map(r => r.r));
+    const hasFormula = r => /<f>/.test(rowsXml.get(r) || '') && /<c r="D\d+"[^>]*>\s*<f>/.test(rowsXml.get(r) || '') || false;
+    const filled = new Set(reg.rows.filter(r => r.r <= tEnd && r[reg.map.type] != null && String(r[reg.map.type]).trim() !== '').map(r => r.r));
+    const lastFilled = Math.max(reg.head, ...filled);
+    // emplacements libres préparés (après la dernière ligne remplie)
+    const slots = [];
+    for (let r = lastFilled + 1; r <= tEnd; r++) if (!filled.has(r) && rowsXml.has(r) && /<f>/.test(rowsXml.get(r)) && /ht="/.test(rowsXml.get(r))) slots.push(r);
+    const need = lignes.length - slots.length;
+    if (need > 0) {
+      const ins = (slots.length ? slots[slots.length - 1] : lastFilled) + 1;
+      const tplNum = slots.length ? slots[slots.length - 1] : lastFilled;
+      const tpl = rowsXml.get(tplNum);
+      // décale les lignes >= ins
+      xml = xml.replace(rowRe, (all, rs) => +rs >= ins ? all.replace(/<row r="\d+"/, '<row r="' + (+rs + need) + '"').replace(/(<c r="[A-Z]+)(\d+)"/g, (a, c, n) => c + (+n + need) + '"') : all);
+      // nouvelles lignes copiées sur le modèle
+      let add = '';
+      for (let i = 0; i < need; i++) {
+        const rn = ins + i;
+        add += tpl.replace(/<row r="\d+"/, '<row r="' + rn + '"').replace(/(<c r="[A-Z]+)\d+"/g, '$1' + rn + '"');
+        slots.push(rn);
+      }
+      const prevRow = new RegExp('(<row r="' + (ins - 1) + '"[^>]*?(?:\\/>|>[\\s\\S]*?<\\/row>))');
+      xml = xml.replace(prevRow, '$1' + add);
+      // références : fusions, validations, dimension, mise en forme conditionnelle
+      xml = xml.replace(/(<mergeCell ref=")([^"]+)"/g, (a, p, r) => p + shiftRef(r, ins, need) + '"')
+        .replace(/(<dimension ref=")([^"]+)"/, (a, p, r) => p + shiftRef(r, ins, need) + '"')
+        .replace(/(sqref=")([^"]+)"/g, (a, p, r) => p + extendRef(r, ins, need) + '"')
+        .replace(/(<xm:sqref>)([^<]+)</g, (a, p, r) => p + extendRef(r, ins, need) + '<');
+      if (reg.table) {
+        const tx = (await wb.zip.file(reg.table.path).async('string')).replace(/(\bref=")([^"]+)"/g, (a, p, r) => p + shiftRef(r, ins, need) + '"');
+        wb.zip.file(reg.table.path, tx);
+      }
+    }
+    // écriture des valeurs
+    const edits = new Map();
+    lignes.forEach((l, i) => {
+      const e = {}; e[reg.map.type] = l.type; e[reg.map.date] = isoToSerial(l.date); e[reg.map.bon] = l.bon; e[reg.map.exu] = l.exu; e[reg.map.poids] = l.t;
+      edits.set(slots[i], e);
+    });
+    xml = applyEdits(xml, edits);
+    // code UE et traitement : valeur écrite directement (et gardée en résultat de formule s'il y en a une)
+    const setVal = (rowXml, ref, val) => {
+      const re = new RegExp('<c r="' + ref + '"([^>]*?)(?:\\/>|>([\\s\\S]*?)<\\/c>)');
+      const m = re.exec(rowXml);
+      const esc = xmlEsc(val);
+      let cell;
+      if (m && /<f>/.test(m[2] || '')) { const f = /<f>[\s\S]*?<\/f>/.exec(m[2])[0]; cell = '<c r="' + ref + '"' + m[1].replace(/\s*\bt="[^"]*"/, '') + ' t="str">' + f + '<v>' + esc + '</v></c>'; }
+      else cell = cellXml(ref, m ? m[1] : '', val);
+      if (m) return rowXml.slice(0, m.index) + cell + rowXml.slice(m.index + m[0].length);
+      const n = colNum(ref.replace(/\d+/, '')); let pos = rowXml.lastIndexOf('</row>');
+      for (const cc of rowXml.matchAll(/<c r="([A-Z]+)\d+"/g)) if (colNum(cc[1]) > n) { pos = cc.index; break; }
+      return rowXml.slice(0, pos) + cell + rowXml.slice(pos);
+    };
+    lignes.forEach((l, i) => {
+      const r = slots[i], t = N(l.type);
+      const code = reg.codes.code[t], trait = reg.codes.trait[t];
+      xml = xml.replace(new RegExp('<row r="' + r + '"[^>]*>[\\s\\S]*?<\\/row>'), row => {
+        if (reg.map.code && code != null) row = setVal(row, reg.map.code + r, code);
+        if (reg.map.trait && trait != null) row = setVal(row, reg.map.trait + r, trait);
+        return row;
+      });
+    });
+    xml = xml.replace(/<selection [^>]*\/>/g, '');
+    wb.zip.file(sh.path, xml);
+    // recalcul complet + suppression de la chaîne de calcul
+    let wbx = await wb.zip.file('xl/workbook.xml').async('string');
+    wbx = /<calcPr\b[^>]*fullCalcOnLoad/.test(wbx) ? wbx : wbx.replace(/<calcPr\b/, '<calcPr fullCalcOnLoad="1"');
+    wb.zip.file('xl/workbook.xml', wbx);
+    if (wb.zip.file('xl/calcChain.xml')) {
+      wb.zip.remove('xl/calcChain.xml');
+      const ct = await wb.zip.file('[Content_Types].xml').async('string');
+      wb.zip.file('[Content_Types].xml', ct.replace(/<Override[^>]*calcChain[^>]*\/>/, ''));
+      const rl = await wb.zip.file('xl/_rels/workbook.xml.rels').async('string');
+      wb.zip.file('xl/_rels/workbook.xml.rels', rl.replace(/<Relationship[^>]*calcChain[^>]*\/>/, ''));
+    }
+    const data = await wb.zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 }, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    return { name: reg.fileName, data, lignes: lignes.length, ajout: Math.max(0, need) };
+  }
+  function extendRef(sq, ins, m) {
+    return sq.split(' ').map(part => {
+      const mm = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(part);
+      if (mm && +mm[4] === ins - 1 && +mm[2] < ins) return mm[1] + mm[2] + ':' + mm[3] + (+mm[4] + m);
+      return shiftRef(part, ins, m);
+    }).join(' ');
+  }
+  const isoToSerial = iso => Math.round((Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) - Date.UTC(1899, 11, 30)) / 864e5);
+
+  const api = { N, parseDac, toLines, openXlsx, readRows, applyEdits, analyseReport, reportRows, plan, buildOutputs, mergeCorr, DEFAULTS, isoToFr, fmtKg, contKey, analyseRegistre, planRegistres, buildRegistre };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.DacCore = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+{
+const C = window.DacCore;
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const S = { dacs: [], reports: { clients: null, sncf: null }, files: [], saved: {}, corr: C.mergeCorr({}), plan: null, db: null, bons: {}, registres: [], R: null };
+const TYPES = { clients: 'Client', sncfSites: 'Site SNCF', flux: 'Déchet', sncfFlux: 'Déchet SNCF', cont: 'Contenant', sncfCont: 'Contenant SNCF', registres: 'Registre', exutoires: 'Exutoire final', regTypes: 'Type au registre' };
+
+/* ---- correspondances : stockage ---- */
+async function loadCorr() {
+  try { const ls = localStorage.getItem('dac-corr'); if (ls) S.saved = JSON.parse(ls) || {}; } catch (e) {}
+  S.corr = C.mergeCorr(S.saved); renderCorr();
+  // correspondances communes : fichier correspondances.json posé à côté de la page
+  try {
+    const r = await fetch('correspondances.json', { cache: 'no-store' });
+    if (r.ok) { const base = await r.json(); for (const k of Object.keys(TYPES)) S.saved[k] = Object.assign({}, base[k] || {}, S.saved[k] || {}); S.corr = C.mergeCorr(S.saved); renderCorr(); if (S.plan) await run(); }
+  } catch (e) {}
+}
+let saving = Promise.resolve();
+function saveCorr() {
+  S.corr = C.mergeCorr(S.saved); renderCorr();
+  try { localStorage.setItem('dac-corr', JSON.stringify(S.saved)); } catch (e) {}
+}
+function setCorr(kind, key, val) { S.saved[kind] = S.saved[kind] || {}; S.saved[kind][key] = val; saveCorr(); }
+function renderCorr() {
+  const rows = [];
+  for (const k of Object.keys(TYPES)) for (const [a, b] of Object.entries(S.saved[k] || {}))
+    rows.push('<tr><td>' + TYPES[k] + '</td><td>' + esc(a.replace(/\|/g, ' · ')) + '</td><td>' + esc(String(b).replace('§', ' · ').replace(/\|$/, '').replace('|', ' / ')) + '</td><td><button class="ghost small" data-del="' + esc(k) + '" data-key="' + esc(a) + '">Supprimer</button></td></tr>');
+  $('corrBody').innerHTML = rows.join('') || '<tr><td colspan="4">Aucune pour l\'instant : les correspondances de base (cartons, DIB, canettes, gares SNCF…) sont déjà intégrées.</td></tr>';
+}
+$('corrBody').addEventListener('click', e => { const b = e.target.closest('[data-del]'); if (!b) return; delete S.saved[b.dataset.del][b.dataset.key]; saveCorr(); if (S.plan) run(); });
+$('btnCopyCorr').addEventListener('click', () => { saveFile('correspondances.json', new Blob([JSON.stringify(S.saved, null, 1)], { type: 'application/json' })); $('corrMsg').textContent = 'Fichier téléchargé.'; });
+$('btnShowImport').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { const d = JSON.parse(await f.text()); for (const k of Object.keys(TYPES)) if (d[k]) S.saved[k] = Object.assign(S.saved[k] || {}, d[k]); saveCorr(); $('corrMsg').textContent = 'Correspondances importées.'; if (S.plan) run(); } catch (err) { $('corrMsg').textContent = 'Fichier non reconnu.'; } });
+function saveFile(name, blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000); }
+
+/* ---- lecture des fichiers ---- */
+async function pdfItems(buf) {
+  const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+  const out = [];
+  for (let p = 1; p <= doc.numPages; p++) { const tc = await (await doc.getPage(p)).getTextContent(); for (const it of tc.items) out.push({ p, x: it.transform[4], y: it.transform[5], s: it.str }); }
+  return { doc, items: out };
+}
+async function pdfPageImages(doc) {
+  const blobs = [];
+  for (let p = 1; p <= Math.min(doc.numPages, 3); p++) {
+    const page = await doc.getPage(p); const vp = page.getViewport({ scale: 2 });
+    const cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height;
+    await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+    blobs.push(await new Promise(r => cv.toBlob(r, 'image/jpeg', .85)));
+  }
+  return blobs;
+}
+async function readScan(images) {
+  throw new Error('DAC scanné ou photo : cette version ne lit que les PDF d\'origine. Saisis ce DAC à la main.');
+  const sample = null;
+  const res = await sample.json('Tu lis un DAC (document d\'accompagnement des déchets) de La Drisse, scanné. Recopie exactement ce qui est écrit, sans rien inventer ; laisse vide ce qui est illisible. Réponds uniquement en JSON : {"bon":"chiffres du N° en haut à droite","client":"raison sociale du producteur (section 1)","adresse":"","date":"JJ/MM/AAAA date de passage","lignes":[{"contenant":"","flux":"","quantite":"nombre ou vide","poids":"nombre ou vide","unite":"KG"}],"destinataires":[{"flux":["..."],"nom":"","adresse":""}]}', { images, modelTier: 'default' });
+  const d = { bon: String(res.bon || '').replace(/\D/g, ''), client: res.client || '', adresse: res.adresse || '', date: null, lignes: [], destinataires: (res.destinataires || []).map(x => ({ flux: x.flux || [], nom: x.nom || '', adresse: x.adresse || '' })), agent: '', erreurs: [], scan: true };
+  const m = /(\d{2})\/(\d{2})\/(\d{4})/.exec(res.date || ''); if (m) d.date = m[3] + '-' + m[2] + '-' + m[1];
+  for (const l of res.lignes || []) {
+    const q = parseFloat(String(l.quantite || '0').replace(',', '.')) || 0; let p = parseFloat(String(l.poids || '0').replace(',', '.')) || 0;
+    if (/^T/i.test(l.unite || '')) p *= 1000;
+    d.lignes.push({ contenant: l.contenant || '', flux: l.flux || '', qte: q, poidsKg: p, poidsTxt: (l.poids || '') + ' ' + (l.unite || ''), destinataire: d.destinataires.find(x => x.flux.some(f => C.N(f) === C.N(l.flux))) || null });
+  }
+  if (!d.bon) d.erreurs.push('N° de bon illisible'); if (!d.client) d.erreurs.push('Client illisible'); if (!d.date) d.erreurs.push('Date illisible'); if (!d.lignes.length) d.erreurs.push('Aucune ligne lue');
+  return d;
+}
+async function addFiles(list) {
+  $('loadMsg').classList.remove('err');
+  for (const f of list) {
+    const entry = { name: f.name, kind: '…', state: 'lecture…' }; S.files.push(entry); renderFiles();
+    try {
+      const buf = await f.arrayBuffer();
+      if (/\.xlsx$/i.test(f.name)) {
+        const rep = await C.analyseReport(JSZip, buf, f.name);
+        if (!rep.type) {
+          const reg = await C.analyseRegistre(JSZip, buf, f.name);
+          if (reg) { S.registres = S.registres.filter(r => r.fileName !== f.name); S.registres.push(reg); entry.kind = 'Registre déchets'; entry.state = (reg.client || '?') + ' · ' + reg.rows.filter(r => r[reg.map.type] && r.r <= (reg.table ? reg.table.end : 1e9)).length + ' lignes déjà inscrites'; entry.ok = true; }
+          else { entry.kind = 'Excel non reconnu'; entry.state = 'ni reporting ni registre reconnu'; entry.bad = true; }
+        }
+        else { const old = S.files.find(x => x !== entry && x.rep && x.rep.type === rep.type); if (old) S.files.splice(S.files.indexOf(old), 1); S.reports[rep.type] = rep; entry.rep = rep; entry.kind = rep.type === 'sncf' ? 'Reporting Marché SNCF' : 'Reporting clients'; entry.state = 'onglets ' + Object.keys(rep.years).join(', '); entry.ok = true; }
+      } else {
+        let dac;
+        if (/\.pdf$/i.test(f.name)) {
+          const { doc, items } = await pdfItems(buf);
+          const hasText = items.filter(i => i.s.trim()).length > 20;
+          dac = hasText ? C.parseDac(items) : null;
+          if (!dac || (!dac.lignes.length && !dac.client)) { entry.state = 'scan : lecture par Claude…'; renderFiles(); dac = await readScan(await pdfPageImages(doc)); }
+        } else { entry.state = 'photo : lecture par Claude…'; renderFiles(); dac = await readScan([f]); }
+        dac.file = f.name;
+        const dup = S.dacs.find(d => d.bon && d.bon === dac.bon && d.date === dac.date);
+        if (dup) { entry.kind = 'DAC en double'; entry.state = 'N°' + dac.bon + ' déjà déposé'; entry.bad = true; }
+        else { S.dacs.push(dac); entry.dac = dac; entry.kind = 'DAC N°' + (dac.bon || '?') + (dac.scan ? ' · lu sur scan' : ''); entry.state = (dac.client || 'client ?') + ' · ' + (dac.date ? C.isoToFr(dac.date) : 'date ?') + ' · ' + dac.lignes.length + ' ligne(s)'; entry.ok = !dac.erreurs.length; entry.bad = !!dac.erreurs.length; }
+      }
+    } catch (e) { entry.kind = 'Erreur'; entry.state = (e && e.message) || String(e); entry.bad = true; }
+    renderFiles();
+  }
+  await run();
+}
+function renderFiles() {
+  $('files').innerHTML = S.files.map(f => '<div class="f ' + (f.ok ? 'ok' : '') + '"><b>' + esc(f.kind) + '</b>' + esc(f.name) + '<br><span style="color:var(' + (f.bad ? '--red' : '--mute') + ');font-size:13px">' + esc(f.state) + '</span></div>').join('');
+}
+const drop = $('drop');
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => addFiles([...e.dataTransfer.files]));
+$('pick').addEventListener('change', e => { addFiles([...e.target.files]); e.target.value = ''; });
+$('btnClear').addEventListener('click', () => { S.bons = {}; S.registres = []; S.dacs = []; S.files = []; S.reports = { clients: null, sncf: null }; S.plan = null; renderFiles(); $('stepCheck').classList.add('hide'); $('stepOut').classList.add('hide'); $('loadMsg').textContent = ''; });
+$('optEcraser').addEventListener('change', () => run());
+$('optZeros').addEventListener('change', () => run());
+$('optRegOui').addEventListener('change', () => { if (S.plan) render(); });
+
+/* ---- rapprochement et affichage ---- */
+async function run() {
+  if (!S.dacs.length) { $('stepCheck').classList.add('hide'); $('stepOut').classList.add('hide'); return; }
+  if (!S.reports.clients && !S.reports.sncf) { $('loadMsg').textContent = 'Ajoute au moins un reporting Excel pour continuer.'; return; }
+  $('loadMsg').textContent = '';
+  try { S.plan = await C.plan(S.dacs, S.reports, S.corr, { zeros: $('optZeros').checked, ecraser: $('optEcraser').checked, bons: S.bons }); }
+  catch (e) { $('loadMsg').textContent = 'Erreur pendant le rapprochement : ' + e.message; $('loadMsg').classList.add('err'); return; }
+  S.R = C.planRegistres(S.plan, S.registres, S.corr);
+  render();
+}
+const fr = v => (Math.round(v * 1000) / 1000).toLocaleString('fr-FR');
+function render() {
+  const P = S.plan, A = [...P.assign.values()];
+  const towrite = A.filter(a => a.write).length, diff = A.filter(a => a.etat === 'different' && !a.write).length;
+  const todo = P.issues.filter(i => ['client', 'flux', 'choix'].includes(i.kind)).length + ((S.R && S.R.issues.filter(i => i.kind !== 'registre').length) || 0), other = P.issues.length - P.issues.filter(i => ['client', 'flux', 'choix'].includes(i.kind)).length;
+  $('kpis').innerHTML =
+    '<div class="k"><em>' + S.dacs.length + '</em><span>DAC lus</span></div>' +
+    '<div class="k good"><em>' + towrite + '</em><span>lignes à remplir</span></div>' +
+    '<div class="k ' + (todo ? 'warn' : '') + '"><em>' + todo + '</em><span>choix à faire</span></div>' +
+    '<div class="k ' + (other + diff ? 'warn' : '') + '"><em>' + (other + diff) + '</em><span>points à vérifier</span></div>';
+  const R = S.R || { issues: [], parReg: new Map() };
+  const allIssues = P.issues.concat(R.issues); S.allIssues = allIssues;
+  const todoReg = R.issues.length;
+  const iss = allIssues.map((i, n) => {
+    const src = i.dac ? '<div class="src">DAC N°' + esc(i.dac.bon) + ' · ' + esc(i.dac.client) + ' · ' + C.isoToFr(i.dac.date) + '</div>' : '<div class="src">' + esc(i.reg ? i.reg.fileName : '') + '</div>';
+    let act = '';
+    if (i.options) {
+      const opts = i.options.map(o => typeof o === 'string' ? { value: o, label: o } : o);
+      act = '<div class="act"><select data-i="' + n + '"><option value="">Choisir…</option>' + opts.map(o => '<option value="' + esc(o.value) + '">' + esc(String(o.label).replace(/\s+/g, ' ').trim()) + '</option>').join('') + (i.libre ? '<option value="__autre">Autre (je l\'écris)…</option>' : '') + '</select>' + (i.libre ? '<input type="text" class="hide" data-libre="' + n + '" placeholder="Nom et adresse de l\'exutoire final">' : '') + '<button class="small" data-ok="' + n + '" type="button">Valider</button></div>';
+    }
+    const info = !i.options;
+    return '<div class="issue ' + (info ? 'info' : '') + '"><div><b>' + esc(i.msg) + '</b>' + src + (info ? '<div class="src">À saisir à la main si besoin.</div>' : '') + '</div>' + act + '</div>';
+  });
+  for (const a of A.filter(a => a.etat === 'different' && !a.write)) iss.push('<div class="issue info"><div><b>' + esc(a.row.client) + ' · ' + esc(a.row.dechet) + ' (ligne ' + a.row.r + ') déjà saisi : ' + esc(a.row.poids) + ' / ' + esc(a.row.bon) + '</b><div class="src">Le DAC donne ' + fr(a.vals.poids) + ' / ' + esc(a.vals.bon) + '. Coche « Remplacer les valeurs déjà saisies » pour l\'écraser.</div></div></div>');
+  for (const g of P.groupes) iss.push('<div class="issue info"><div><b>' + esc(g.target) + ' le ' + C.isoToFr(g.date) + ' : ' + g.dacs.length + ' DAC cumulés, ' + fr(g.totalKg) + ' kg au total</b><div class="src">' + g.dacs.map(d => esc(d.client) + ' N°' + esc(d.bon)).join(' · ') + '</div></div><div class="act"><label class="src" for="gb' + esc(g.gk) + '">N° reporté (registre)</label><select id="gb' + esc(g.gk) + '" data-gk="' + esc(g.gk) + '">' + g.dacs.map(d => '<option value="' + esc(d.bon) + '"' + (d.bon === g.bon ? ' selected' : '') + '>' + esc(d.client) + ' · N°' + esc(d.bon) + '</option>').join('') + '</select></div></div>');
+  for (const t of P.infos) iss.push('<div class="issue info"><div>' + esc(t) + '</div></div>');
+  const vides = P.vides.filter(v => v.type === 'clients');
+  if (vides.length) iss.push('<div class="issue info"><div><b>' + vides.length + ' ligne(s) prévue(s) sans donnée dans les DAC</b><div class="src">' + vides.map(v => esc(v.row.client) + ' · ' + esc(v.row.dechet) + (v.row.detail ? ' ' + esc(v.row.detail) : '') + ' (ligne ' + v.row.r + ')').join(' — ') + '</div><div class="src">Coche « Mettre 0… » si ces bacs n\'ont pas été collectés.</div></div></div>');
+  $('issues').innerHTML = iss.join('');
+  // détail par DAC
+  const byDac = new Map(); for (const l of P.lignes) { if (!byDac.has(l.dac)) byDac.set(l.dac, []); byDac.get(l.dac).push(l); }
+  const findA = l => A.find(a => a.sources.includes(l));
+  $('dacs').innerHTML = S.dacs.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.client.localeCompare(b.client)).map(d => {
+    const ls = byDac.get(d) || [];
+    if (!ls.length) return '';
+    const tgt = ls[0].type === 'sncf' ? 'Reporting SNCF · ' + ls[0].target : ls[0].target;
+    return '<div class="dac"><header><b>' + esc(d.client) + '</b><span>N°' + esc(d.bon) + ' · ' + C.isoToFr(d.date) + (d.agent ? ' · ' + esc(d.agent) : '') + '</span><span>→ ' + esc(tgt) + '</span>' + (d.scan ? '<span class="tag t-diff">lu sur scan : vérifie</span>' : '') + '</header>' +
+      '<table class="stack"><thead><tr><th>Sur le DAC</th><th>Contenant</th><th class="n">Qté</th><th class="n">Poids</th><th>Ligne du reporting</th><th>État</th></tr></thead><tbody>' +
+      ls.map(l => {
+        const a = findA(l); let st, where = '—';
+        if (l.row) where = 'n°' + l.row.r + ' · ' + esc(l.row.dechet) + (l.row.detail ? ' ' + esc(l.row.detail) : '') + ' · ' + esc(l.row.cont || '');
+        if (l.status === 'ok' && a) st = a.write ? '<span class="tag t-new">' + (a.etat === 'different' ? 'remplacé' : 'à remplir') + '</span>' : a.etat === 'identique' ? '<span class="tag t-same">déjà à jour</span>' : '<span class="tag t-diff">déjà saisi</span>';
+        else if (l.status === 'absent') st = '<span class="tag t-bad">pas prévu</span>';
+        else st = '<span class="tag t-diff">à choisir</span>';
+        return '<tr><td>' + esc(l.l.flux) + '</td><td>' + esc(l.l.contenant) + '</td><td class="n">' + fr(l.l.qte) + '</td><td class="n">' + (l.l.poidsKg == null ? '?' : fr(l.l.poidsKg) + ' kg') + '</td><td>' + where + '</td><td>' + st + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }).join('');
+  const regHtml = [];
+  for (const [reg, b] of R.parReg) {
+    regHtml.push('<div class="dac"><header><b>Registre ' + esc(reg.client) + '</b><span>' + esc(reg.fileName) + '</span>' + (reg.target ? '<span>→ ' + esc(reg.target) + '</span>' : '') + (b.deja ? '<span>' + b.deja + ' ligne(s) déjà inscrite(s)</span>' : '') + '</header>' +
+      (b.lignes.length ? '<table class="stack"><thead><tr><th>Type de déchets</th><th>Date</th><th>N° bon</th><th>Exutoire final</th><th class="n">Poids (t)</th></tr></thead><tbody>' + b.lignes.map(l => '<tr><td>' + esc(l.type) + '</td><td>' + C.isoToFr(l.date) + '</td><td>' + esc(l.bon).replace('\n', '<br>') + '</td><td>' + esc(l.exu.replace(/\s+/g, ' ')) + '</td><td class="n">' + fr(l.t) + '</td></tr>').join('') + '</tbody></table>' : '<p class="msg" style="padding:0 14px 10px">Rien à ajouter pour l\'instant.</p>') + '</div>');
+  }
+  $('dacs').innerHTML = regHtml.join('') + $('dacs').innerHTML;
+  $('stepCheck').classList.remove('hide');
+  // sorties
+  const btns = [];
+  for (const t of ['clients', 'sncf']) {
+    if (!S.reports[t]) continue;
+    const n = A.filter(a => a.type === t && a.write).length;
+    btns.push('<button type="button" data-dl="' + t + '"' + (n ? '' : ' disabled') + '>' + (t === 'sncf' ? 'Reporting Marché SNCF' : 'Reporting clients') + ' · ' + n + ' ligne' + (n > 1 ? 's' : '') + '</button>');
+  }
+  for (const [reg, b] of R.parReg) btns.push('<button type="button" data-reg="' + esc(reg.fileName) + '"' + (b.lignes.length ? '' : ' disabled') + '>Registre ' + esc(reg.client) + ' · ' + b.lignes.length + ' ligne' + (b.lignes.length > 1 ? 's' : '') + '</button>');
+  $('outBtns').innerHTML = btns.join('');
+  const nWrite = A.filter(a => a.write).length;
+  if (!nWrite) {
+    const why = [];
+    const ident = A.filter(a => a.etat === 'identique').length; if (ident) why.push(ident + ' ligne(s) déjà à jour dans le reporting');
+    if (diff) why.push(diff + ' ligne(s) déjà saisie(s) avec une autre valeur (coche « Remplacer les valeurs déjà saisies »)');
+    if (todo) why.push(todo + ' choix à faire en haut de la page');
+    const nf = P.issues.filter(i => ['jour', 'absent', 'fichier', 'dac'].includes(i.kind)).length; if (nf) why.push(nf + ' ligne(s) de DAC sans ligne prévue au reporting (voir la liste en haut)');
+    $('outMsg').textContent = 'Rien à écrire pour l\'instant' + (why.length ? ' : ' + why.join(' · ') + '.' : '.');
+    $('outMsg').classList.add('err');
+  } else {
+  $('outMsg').classList.remove('err');
+  $('outMsg').textContent = todo ? 'Il reste ' + todo + ' choix à faire : les lignes concernées ne seront pas remplies tant qu\'ils ne sont pas faits.' : 'Le fichier garde son nom (le reporting SNCF prend la date du jour). Remets-le ensuite sur le serveur à la place de l\'ancien.';
+  }
+  $('stepOut').classList.remove('hide');
+}
+$('issues').addEventListener('change', e => { const s2 = e.target.closest('select[data-i]'); if (s2) { const inp = $('issues').querySelector('input[data-libre="' + s2.dataset.i + '"]'); if (inp) { inp.classList.toggle('hide', s2.value !== '__autre'); if (s2.value === '__autre') inp.focus(); } } });
+$('issues').addEventListener('change', e => { const sel = e.target.closest('select[data-gk]'); if (!sel) return; S.bons[sel.dataset.gk] = sel.value; run(); });
+$('issues').addEventListener('click', async e => {
+  const b = e.target.closest('[data-ok]'); if (!b) return;
+  const i = S.allIssues[+b.dataset.ok]; let v = $('issues').querySelector('select[data-i="' + b.dataset.ok + '"]').value;
+  if (v === '__autre') { const inp = $('issues').querySelector('input[data-libre="' + b.dataset.ok + '"]'); v = inp ? inp.value.trim() : ''; if (!v) { inp && inp.focus(); return; } }
+  if (!v) return;
+  if (i.kind === 'client') setCorr(i.type === 'sncf' ? 'sncfSites' : 'clients', C.N(i.dac.client), v);
+  else if (i.kind === 'flux') setCorr(i.type === 'sncf' ? 'sncfFlux' : 'flux', C.N(i.l.flux), v);
+  else if (i.kind === 'registre') setCorr('registres', C.N(i.reg.client), v);
+  else if (i.kind === 'regtype') setCorr('regTypes', i.k, v);
+  else if (i.kind === 'exutoire') { const dn = C.N(i.dest ? i.dest.nom : ''); setCorr('exutoires', dn + '|' + C.N(i.type), v); }
+  else if (i.kind === 'choix') { if (i.type === 'sncf') setCorr('sncfCont', C.N(i.target) + '|' + C.N(i.l.contenant), v.split('§')[0]); else setCorr('cont', C.contKey(i.target, i.l.flux, i.l.contenant), v); }
+  await run();
+});
+$('outBtns').addEventListener('click', async e => {
+  const rb = e.target.closest('[data-reg]');
+  if (rb) {
+    rb.disabled = true; $('outMsg').textContent = 'Préparation du registre…';
+    try {
+      const reg = S.registres.find(r => r.fileName === rb.dataset.reg); const b = S.R.parReg.get(reg);
+      const out = await C.buildRegistre(JSZip, reg, b.lignes);
+      saveFile(out.name, new Blob([out.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      $('outMsg').textContent = out.name + ' : ' + out.lignes + ' ligne(s) ajoutée(s)' + (out.ajout ? ' dont ' + out.ajout + ' nouvelle(s) ligne(s) créée(s) dans le tableau' : '') + '. Les codes UE et traitements se calculent à l\'ouverture dans Excel.';
+    } catch (err) { $('outMsg').textContent = err && err.code === 'declined' ? 'Téléchargement annulé.' : 'Échec : ' + ((err && err.message) || err); }
+    finally { rb.disabled = false; }
+    return;
+  }
+  const b = e.target.closest('[data-dl]'); if (!b) return;
+  const t = b.dataset.dl; b.disabled = true; $('outMsg').textContent = 'Préparation du fichier…';
+  try {
+    const now = new Date(), today = now.getFullYear() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0');
+    const sub = { assign: new Map([...S.plan.assign].filter(([, a]) => a.type === t)) };
+    const out = (await C.buildOutputs({ [t]: S.reports[t] }, sub, today, $('optRegOui').checked && S.R ? S.R.reportingRows : null))[0];
+    if (!out) { $('outMsg').textContent = 'Rien à écrire dans ce fichier.'; return; }
+    saveFile(out.name, new Blob([out.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    $('outMsg').textContent = out.name + ' : ' + out.lignes + ' ligne(s) remplie(s). Remets-le sur le serveur à la place de l\'ancien.';
+  } catch (err) { $('outMsg').textContent = err && err.code === 'declined' ? 'Téléchargement annulé.' : 'Échec : ' + ((err && err.message) || err); }
+  finally { b.disabled = false; }
+});
+loadCorr();
+}
+</script>
+</body>
+</html>
