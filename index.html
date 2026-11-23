@@ -138,7 +138,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
   const N = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
   const pad = n => String(n).padStart(2, '0');
-  const serialToIso = n => { const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 864e5); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); };
+  const serialToIso = n => { const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(n + 1e-6) * 864e5); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); };
   const frToIso = s => { const m = /(\d{2})\/(\d{2})\/(\d{4})/.exec(s || ''); return m ? m[3] + '-' + m[2] + '-' + m[1] : null; };
   const isoToFr = s => s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '';
   const round = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
@@ -415,6 +415,8 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
           if (Object.values(H).every(h => vals[h])) {
             const map = {}; for (const k in H) map[k] = vals[H[k]];
             if (type === 'clients' && vals['REGISTRE']) map.registre = vals['REGISTRE'];
+            if (type === 'clients' && vals['AGENTS COLLECTEUR']) map.agent = vals['AGENTS COLLECTEUR'];
+            if (type === 'sncf' && vals['TYPE DE L OPERATION']) map.op = vals['TYPE DE L OPERATION'];
             rep.type = type; rep.years[sh.name.trim()] = { sheet: sh.name, head: row.r, map };
           }
         }
@@ -457,7 +459,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
 
   // dacs : liste des DAC lus ; reports : {clients, sncf} ; opts : {zeros:bool, ecraser:bool}
   async function plan(dacs, reports, corr, opts) {
-    const P = { assign: new Map(), issues: [], infos: [], lignes: [], vides: [], groupes: [] }; // assign: key(type|year|row) -> {...}
+    const P = { assign: new Map(), issues: [], infos: [], lignes: [], vides: [], groupes: [], ajoutJour: [], virtuels: new Map() }; // assign: key(type|year|row) -> {...}
     const groups = new Map(); // type|year|client|date -> {rows, dacs}
     for (const dac of dacs) {
       if (dac.erreurs.length && (!dac.client || !dac.date || !dac.lignes.length)) { P.issues.push({ kind: 'dac', dac, msg: dac.erreurs.join(' · ') }); continue; }
@@ -476,7 +478,9 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       const gk = type + '|' + year + '|' + N(target) + '|' + dac.date;
       if (!groups.has(gk)) groups.set(gk, { type, year, rows: dayRows, dacs: [], target, date: dac.date });
       groups.get(gk).dacs.push(dac);
-      if (!dayRows.length) { P.issues.push({ kind: 'jour', type, dac, msg: 'Aucune ligne prévue pour ' + target + ' le ' + isoToFr(dac.date) + ' dans le reporting' }); continue; }
+      if (!dayRows.length) {
+        if (!P.ajoutJour.some(x => x.gk === gk)) P.ajoutJour.push({ gk, target, date: dac.date, type });
+      }
       for (const l of dac.lignes) {
         const fluxMap = type === 'sncf' ? corr.sncfFlux : corr.flux;
         const fm = fluxMap[N(target) + '|' + N(l.flux)] || fluxMap[N(l.flux)];
@@ -496,7 +500,12 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
             const same = c.filter(r => N(r.cont) === N(l.contenant)); if (same.length === 1) c = same;
           }
         }
-        if (!c.length) { ligne.status = 'absent'; P.issues.push({ kind: 'absent', type, dac, l, target, msg: l.flux + ' (' + fmtKg(l.poidsKg) + ') : pas de ligne « ' + dech + (det ? ' / ' + det : '') + ' » prévue pour ' + target + ' le ' + isoToFr(dac.date) }); continue; }
+        if (!c.length) {
+          const v = virtualRow(P, type, year, Y, rep, dac, l, target, dech, det);
+          if (!groups.get(gk).rows.includes(v)) groups.get(gk).rows.push(v);
+          c = [v];
+          ligne.ajout = true;
+        }
         if (c.length > 1) {
           // si plusieurs DAC du même jour : éviter les lignes déjà prises par un autre bon
           ligne.status = 'choix';
@@ -504,7 +513,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
           continue;
         }
         ligne.row = c[0]; ligne.status = 'ok';
-        const key = type + '|' + year + '|' + c[0].r;
+        const key = type + '|' + year + '|' + (c[0].virtual ? c[0].vkey : c[0].r);
         const a = P.assign.get(key) || { type, year, row: c[0], poidsKg: 0, qte: 0, bons: [], sources: [] };
         if (l.poidsKg == null) { P.issues.push({ kind: 'unite', type, dac, l, msg: 'Poids non converti : ' + l.poidsTxt }); }
         else a.poidsKg += l.poidsKg;
@@ -525,6 +534,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         for (const a of P.assign.values()) if (a.type === 'clients' && g.rows.includes(a.row)) { a.bons = [bon].concat(a.bons.filter(b => b !== bon)); a.groupBon = bon; a.magasin = (g.dacs.find(d => d.bon === bon) || {}).client; }
       }
       for (const r of g.rows) {
+        if (r.virtual) continue;
         const key = g.type + '|' + g.year + '|' + r.r;
         if (P.assign.has(key)) continue;
         if (r.poids != null && r.poids !== '') continue;
@@ -532,6 +542,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         else P.vides.push({ type: g.type, row: r, dac: g.dacs[0] });
       }
     }
+    for (const j of P.ajoutJour) P.infos.push(j.target + ' : aucune ligne prévue le ' + isoToFr(j.date) + ' — les lignes des DAC seront ajoutées à la fin du reporting' + (j.type === 'sncf' ? ' SNCF' : ''));
     // valeurs à écrire + état
     for (const a of P.assign.values()) {
       const Y = reports[a.type].years[a.year];
@@ -541,8 +552,8 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       const r = a.row;
       const filled = r.poids != null && r.poids !== '';
       const same = filled && +r.poids === newPoids && N(r.bon) === N(newBon) && (+r.qte || 0) === a.qte;
-      a.etat = !filled ? 'nouveau' : same ? 'identique' : 'different';
-      a.write = a.etat === 'nouveau' || (a.etat === 'different' && opts.ecraser);
+      a.etat = r.virtual ? 'ajout' : !filled ? 'nouveau' : same ? 'identique' : 'different';
+      a.write = a.etat === 'nouveau' || a.etat === 'ajout' || (a.etat === 'different' && opts.ecraser);
       if (a.bons.length > 1 && !a.groupBon) P.infos.push((r.client || '') + ' ligne ' + r.r + ' : ' + a.bons.length + ' bons cumulés (' + a.bons.join(', ') + ')');
       a.cols = { poids: Y.map.poids, bon: Y.map.bon, qte: Y.map.qte };
       if (a.type === 'clients' && a.groupBon && N(r.client) === 'MARCHE U' && Y.map.info && (!r.info || /^N\S* DAC SUR REGISTRE/i.test(N(r.info).replace(/^N /, 'N° ')) || /DAC SUR REGISTRE/i.test(String(r.info)))) {
@@ -552,6 +563,29 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       }
     }
     return P;
+  }
+  // ligne absente du reporting : préparée pour être ajoutée à la fin
+  function virtualRow(P, type, year, Y, rep, dac, l, target, dech, det) {
+    const canon = (val, list) => { const n = N(val); const hit = list.find(x => N(x) === n); return hit != null ? hit : val; };
+    const dechC = canon(dech, Y.rows.map(r => r.dechet).filter(Boolean).concat(rep.lists.dechets));
+    const detC = type === 'clients' ? (det ? canon(det, Y.rows.map(r => r.detail).filter(Boolean).concat(rep.lists.details)) : '') : '';
+    const hist = Y.rows.filter(r => N(r.client) === N(target) && N(r.dechet) === N(dech) && N(r.detail) === N(det) && r.cont);
+    // contenant : d'abord d'après le DAC (même nom, même volume), sinon le dernier utilisé pour ce client et ce déchet
+    const nl = N(l.contenant), num = (nl.match(/\d+\s*L\b|\d+\s*M3/) || [''])[0].replace(/\s/g, '');
+    const all = [...new Set(rep.lists.conts.concat(Y.rows.map(r => r.cont).filter(Boolean)))];
+    let cont = all.find(x => N(x) === nl)
+      || (num && all.find(x => N(x).replace(/\s/g, '').includes(num) && /ROUL/.test(N(x)) === /ROUL/.test(nl)))
+      || (num && all.find(x => N(x).replace(/\s/g, '').includes(num)))
+      || (nl.length >= 3 && all.find(x => new RegExp('\\b' + nl + '\\b').test(N(x))))
+      || (hist.length ? hist[hist.length - 1].cont : '')
+      || l.contenant;
+    const vkey = 'v|' + dac.date + '|' + N(target) + '|' + N(dech) + '|' + N(det) + '|' + N(cont);
+    if (P.virtuels.has(vkey)) return P.virtuels.get(vkey);
+    const prenom = String(dac.agent || '').split(/\s+/)[0] || '';
+    const agent = prenom ? prenom.charAt(0).toUpperCase() + prenom.slice(1).toLowerCase() : '';
+    const v = { virtual: true, vkey, r: null, type, year, date: dac.date, client: target, dechet: dechC, detail: detC, cont, agent, poids: null, bon: null, qte: null, info: '', ordre: P.virtuels.size };
+    P.virtuels.set(vkey, v);
+    return v;
   }
   const fmtKg = v => v == null ? '?' : (Math.round(v * 10) / 10).toLocaleString('fr-FR') + ' kg';
   function optionsClients(rep, Y) {
@@ -569,24 +603,76 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     return [...set].filter(s => s !== '|').sort((a, b) => a.localeCompare(b, 'fr')).map(v => ({ value: v, label: v.replace(/\|$/, '').replace('|', ' / ') }));
   }
 
+  async function appendRows(rep, sheet, xml, list, type) {
+    const Y = Object.values(rep.years).find(y => y.sheet === sheet);
+    const map = Y.map;
+    list.sort((a, b) => a.row.date.localeCompare(b.row.date) || a.row.ordre - b.row.ordre);
+    const rowRe = /<row r="(\d+)"([^>]*?)(\/>|>([\s\S]*?)<\/row>)/g;
+    const rowsXml = new Map(); let m;
+    while ((m = rowRe.exec(xml))) rowsXml.set(+m[1], m[0]);
+    const data = Y.rows;
+    const last = Math.max(Y.head, ...data.map(r => r.r));
+    // modèle : dernière ligne déjà remplie à la main (poids saisi)
+    const filled = data.filter(r => r.poids != null && r.poids !== '');
+    const tplNum = filled.length ? filled[filled.length - 1].r : last;
+    const tpl = rowsXml.get(tplNum);
+    const blank = tpl.replace(/<c r="([A-Z]+)\d+"([^>]*?)(?:\/>|>[\s\S]*?<\/c>)/g, (all, col, at) => '<c r="' + col + '__R__"' + at.replace(/\s*\bt="[^"]*"/, '') + '/>');
+    let insertAfter = last, html = '';
+    const edits = new Map();
+    list.forEach((a, i) => {
+      const rn = last + 1 + i;
+      const v = a.row;
+      const e = {};
+      e[map.date] = isoToSerial(v.date); e[map.client] = v.client; e[map.dechet] = v.dechet; e[map.cont] = v.cont || null;
+      e[map.poids] = a.vals.poids; e[map.bon] = a.vals.bon; e[map.qte] = a.vals.qte;
+      if (type === 'clients') { if (map.detail) e[map.detail] = v.detail || null; if (map.agent && v.agent) e[map.agent] = v.agent; if (a.vals.info && map.info) e[map.info] = a.vals.info; }
+      if (type === 'sncf' && map.op) e[map.op] = 'Collecte';
+      edits.set(rn, e);
+      a.row.r = rn;
+      const rowXml = blank.replace(/<row r="\d+"/, '<row r="' + rn + '"').replace(/__R__/g, String(rn));
+      if (rowsXml.has(rn)) xml = xml.replace(rowsXml.get(rn), rowXml);
+      else html += rowXml;
+    });
+    if (html) {
+      // lignes au-delà des lignes existantes : insérées dans l'ordre
+      const after = Math.max(...[...rowsXml.keys()].filter(r => r <= last + list.length));
+      xml = xml.replace(rowsXml.get(after) && xml.includes(rowsXml.get(after)) ? rowsXml.get(after) : '</sheetData>', s => s === '</sheetData>' ? html + s : s + html);
+    }
+    xml = applyEdits(xml, edits);
+    const newLast = last + list.length;
+    // filtre automatique et dimension
+    xml = xml.replace(/(<autoFilter ref="[A-Z]+\d+:[A-Z]+)(\d+)"/, (a0, p, e) => +e < newLast ? p + newLast + '"' : a0)
+      .replace(/(<dimension ref="[A-Z]+\d+:[A-Z]+)(\d+)"/, (a0, p, e) => +e < newLast ? p + newLast + '"' : a0);
+    const wbx = await rep.wb.zip.file('xl/workbook.xml').async('string');
+    const idx = rep.wb.sheets.findIndex(s => s.name === sheet);
+    const re = new RegExp('(<definedName name="_xlnm._FilterDatabase" localSheetId="' + idx + '"[^>]*>[^<]*?\\$)(\\d+)(</definedName>)');
+    rep.wb.zip.file('xl/workbook.xml', wbx.replace(re, (a0, p, e, s) => +e < newLast ? p + newLast + s : a0));
+    return xml;
+  }
   async function buildOutputs(reports, P, today, regRows) {
     const out = [];
     for (const type of ['clients', 'sncf']) {
       const rep = reports[type]; if (!rep) continue;
       const bySheet = new Map();
       let n = 0;
+      const virt = new Map();
       for (const a of P.assign.values()) {
         if (a.type !== type || !a.write) continue;
         const Y = rep.years[a.year];
+        if (a.row.virtual) { if (!virt.has(Y.sheet)) virt.set(Y.sheet, []); virt.get(Y.sheet).push(a); n++; continue; }
         if (!bySheet.has(Y.sheet)) bySheet.set(Y.sheet, new Map());
         const e = {}; e[a.cols.poids] = a.vals.poids; e[a.cols.bon] = a.vals.bon; e[a.cols.qte] = a.vals.qte; if (a.cols.info) e[a.cols.info] = a.vals.info;
         if (regRows && regRows.has(a.row) && Y.map.registre) e[Y.map.registre] = 'OUI';
         bySheet.get(Y.sheet).set(a.row.r, e); n++;
       }
       if (!n) continue;
-      for (const [sheet, edits] of bySheet) {
-        const xml = await sheetXml(rep.wb, sheet);
-        rep.wb.zip.file(rep.wb.sheets.find(s => s.name === sheet).path, applyEdits(xml, styleEdits(xml, edits)));
+      const sheets = new Set([...bySheet.keys(), ...virt.keys()]);
+      for (const sheet of sheets) {
+        let xml = await sheetXml(rep.wb, sheet);
+        const edits = bySheet.get(sheet);
+        if (edits) xml = applyEdits(xml, styleEdits(xml, edits));
+        if (virt.has(sheet)) xml = await appendRows(rep, sheet, xml, virt.get(sheet), type);
+        rep.wb.zip.file(rep.wb.sheets.find(s => s.name === sheet).path, xml);
       }
       const data = await rep.wb.zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 }, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       let name = rep.fileName;
@@ -1009,8 +1095,8 @@ function render() {
       '<table class="stack"><thead><tr><th>Sur le DAC</th><th>Contenant</th><th class="n">Qté</th><th class="n">Poids</th><th>Ligne du reporting</th><th>État</th></tr></thead><tbody>' +
       ls.map(l => {
         const a = findA(l); let st, where = '—';
-        if (l.row) where = 'n°' + l.row.r + ' · ' + esc(l.row.dechet) + (l.row.detail ? ' ' + esc(l.row.detail) : '') + ' · ' + esc(l.row.cont || '');
-        if (l.status === 'ok' && a) st = a.write ? '<span class="tag t-new">' + (a.etat === 'different' ? 'remplacé' : 'à remplir') + '</span>' : a.etat === 'identique' ? '<span class="tag t-same">déjà à jour</span>' : '<span class="tag t-diff">déjà saisi</span>';
+        if (l.row) where = (l.row.virtual ? 'nouvelle ligne' : 'n°' + l.row.r) + ' · ' + esc(l.row.dechet) + (l.row.detail ? ' ' + esc(l.row.detail) : '') + ' · ' + esc(l.row.cont || '');
+        if (l.status === 'ok' && a) st = a.write ? '<span class="tag t-new">' + (a.etat === 'different' ? 'remplacé' : a.etat === 'ajout' ? 'ligne ajoutée' : 'à remplir') + '</span>' : a.etat === 'identique' ? '<span class="tag t-same">déjà à jour</span>' : '<span class="tag t-diff">déjà saisi</span>';
         else if (l.status === 'absent') st = '<span class="tag t-bad">pas prévu</span>';
         else st = '<span class="tag t-diff">à choisir</span>';
         return '<tr><td>' + esc(l.l.flux) + '</td><td>' + esc(l.l.contenant) + '</td><td class="n">' + fr(l.l.qte) + '</td><td class="n">' + (l.l.poidsKg == null ? '?' : fr(l.l.poidsKg) + ' kg') + '</td><td>' + where + '</td><td>' + st + '</td></tr>';
