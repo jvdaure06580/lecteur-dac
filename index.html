@@ -395,6 +395,36 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     return out;
   }
 
+
+  // écrit une partie du fichier sans créer d'entrées « dossier » (Excel n'aime pas)
+  function put(zip, path, content) { zip.file(path, content, { createFolders: false }); }
+  // remplace le texte « en ligne » par des chaînes partagées, comme le fait Excel
+  async function finalize(wb, paths) {
+    const sf = wb.zip.file('xl/sharedStrings.xml');
+    if (!sf) return;
+    if (wb.sstXml == null) wb.sstXml = await sf.async('string');
+    const base = wb.sstXml;
+    const uniq0 = +((/uniqueCount="(\d+)"/.exec(base) || [])[1] || wb.sst.length);
+    const idx = new Map(); wb.sst.forEach((s, i) => { if (!idx.has(s)) idx.set(s, i); });
+    const added = []; let refs = 0;
+    for (const p of paths) {
+      let x = await wb.zip.file(p).async('string');
+      x = x.replace(/<c r="([A-Z]+\d+)"([^>]*?) t="inlineStr"><is><t(?: xml:space="preserve")?>([\s\S]*?)<\/t><\/is><\/c>/g, (all, ref, at, t) => {
+        const s = xmlUnesc(t);
+        let i = idx.get(s);
+        if (i === undefined) { i = uniq0 + added.length; added.push(s); idx.set(s, i); }
+        refs++;
+        return '<c r="' + ref + '"' + at + ' t="s"><v>' + i + '</v></c>';
+      });
+      put(wb.zip, p, x);
+    }
+    let out = base;
+    if (added.length) out = out.replace(/<\/sst>\s*$/, added.map(s => '<si><t xml:space="preserve">' + xmlEsc(s) + '</t></si>').join('') + '</sst>');
+    out = out.replace(/uniqueCount="\d+"/, 'uniqueCount="' + (uniq0 + added.length) + '"');
+    out = out.replace(/(<sst\b[^>]*?\s)count="(\d+)"/, (a, p, n) => p + 'count="' + (+n + refs) + '"');
+    put(wb.zip, 'xl/sharedStrings.xml', out);
+  }
+
   /* ---------- reconnaissance des reportings ---------- */
   const HEAD = {
     clients: { date: 'DATES', client: 'ENTREPRISES', dechet: 'DECHETS', detail: 'DECHETS DETAIL', poids: 'POIDS', bon: 'N BONS', cont: 'CONTENANT', qte: 'QTE', info: 'AUTRES INFORMATIONS' },
@@ -646,7 +676,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     const wbx = await rep.wb.zip.file('xl/workbook.xml').async('string');
     const idx = rep.wb.sheets.findIndex(s => s.name === sheet);
     const re = new RegExp('(<definedName name="_xlnm._FilterDatabase" localSheetId="' + idx + '"[^>]*>[^<]*?\\$)(\\d+)(</definedName>)');
-    rep.wb.zip.file('xl/workbook.xml', wbx.replace(re, (a0, p, e, s) => +e < newLast ? p + newLast + s : a0));
+    put(rep.wb.zip, 'xl/workbook.xml', wbx.replace(re, (a0, p, e, s) => +e < newLast ? p + newLast + s : a0));
     return xml;
   }
   async function buildOutputs(reports, P, today, regRows) {
@@ -672,8 +702,9 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         const edits = bySheet.get(sheet);
         if (edits) xml = applyEdits(xml, styleEdits(xml, edits));
         if (virt.has(sheet)) xml = await appendRows(rep, sheet, xml, virt.get(sheet), type);
-        rep.wb.zip.file(rep.wb.sheets.find(s => s.name === sheet).path, xml);
+        put(rep.wb.zip, rep.wb.sheets.find(s => s.name === sheet).path, xml);
       }
+      await finalize(rep.wb, [...sheets].map(sn => rep.wb.sheets.find(s => s.name === sn).path));
       const data = await rep.wb.zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 }, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       let name = rep.fileName;
       if (type === 'sncf') name = /^\d{8}/.test(name) ? name.replace(/^\d{8}/, today) : today + '-' + name;
@@ -871,7 +902,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         .replace(/(<xm:sqref>)([^<]+)</g, (a, p, r) => p + extendRef(r, ins, need) + '<');
       if (reg.table) {
         const tx = (await wb.zip.file(reg.table.path).async('string')).replace(/(\bref=")([^"]+)"/g, (a, p, r) => p + shiftRef(r, ins, need) + '"');
-        wb.zip.file(reg.table.path, tx);
+        put(wb.zip, reg.table.path, tx);
       }
     }
     // écriture des valeurs
@@ -904,18 +935,19 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       });
     });
     xml = xml.replace(/<selection [^>]*\/>/g, '');
-    wb.zip.file(sh.path, xml);
+    put(wb.zip, sh.path, xml);
     // recalcul complet + suppression de la chaîne de calcul
     let wbx = await wb.zip.file('xl/workbook.xml').async('string');
     wbx = /<calcPr\b[^>]*fullCalcOnLoad/.test(wbx) ? wbx : wbx.replace(/<calcPr\b/, '<calcPr fullCalcOnLoad="1"');
-    wb.zip.file('xl/workbook.xml', wbx);
+    put(wb.zip, 'xl/workbook.xml', wbx);
     if (wb.zip.file('xl/calcChain.xml')) {
       wb.zip.remove('xl/calcChain.xml');
       const ct = await wb.zip.file('[Content_Types].xml').async('string');
-      wb.zip.file('[Content_Types].xml', ct.replace(/<Override[^>]*calcChain[^>]*\/>/, ''));
+      put(wb.zip, '[Content_Types].xml', ct.replace(/<Override[^>]*calcChain[^>]*\/>/, ''));
       const rl = await wb.zip.file('xl/_rels/workbook.xml.rels').async('string');
-      wb.zip.file('xl/_rels/workbook.xml.rels', rl.replace(/<Relationship[^>]*calcChain[^>]*\/>/, ''));
+      put(wb.zip, 'xl/_rels/workbook.xml.rels', rl.replace(/<Relationship[^>]*calcChain[^>]*\/>/, ''));
     }
+    await finalize(wb, [sh.path]);
     const data = await wb.zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 }, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     return { name: reg.fileName, data, lignes: lignes.length, ajout: Math.max(0, need) };
   }
