@@ -299,7 +299,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         sst.push(xmlUnesc([...body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(t => t[1]).join('')));
       }
     }
-    return { zip, sheets, sst, xml: {} };
+    return { zip, sheets, sst, xml: {}, wbXml };
   }
   async function sheetXml(wb, name) {
     const sh = wb.sheets.find(s => s.name === name);
@@ -404,7 +404,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     if (!sf) return;
     if (wb.sstXml == null) wb.sstXml = await sf.async('string');
     const base = wb.sstXml;
-    const uniq0 = +((/uniqueCount="(\d+)"/.exec(base) || [])[1] || wb.sst.length);
+    const uniq0 = (base.match(/<si>|<si\s/g) || []).length; // nombre réel de chaînes
     const idx = new Map(); wb.sst.forEach((s, i) => { if (!idx.has(s)) idx.set(s, i); });
     const added = []; let refs = 0;
     for (const p of paths) {
@@ -423,6 +423,28 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     out = out.replace(/uniqueCount="\d+"/, 'uniqueCount="' + (uniq0 + added.length) + '"');
     out = out.replace(/(<sst\b[^>]*?\s)count="(\d+)"/, (a, p, n) => p + 'count="' + (+n + refs) + '"');
     put(wb.zip, 'xl/sharedStrings.xml', out);
+  }
+
+
+  /* Mémoire des DAC déjà comptés, rangée dans le fichier Excel lui-même
+     (noms cachés « _LDAC_AAAAMMJJ », invisibles pour l'utilisateur) */
+  function readBonsNames(wbXml) {
+    const out = {};
+    for (const m of (wbXml || '').matchAll(/<definedName name="_LDAC_(\d{8})"[^>]*>([^<]*)<\/definedName>/g)) {
+      const iso = m[1].slice(0, 4) + '-' + m[1].slice(4, 6) + '-' + m[1].slice(6, 8);
+      out[iso] = new Set([...xmlUnesc(m[2]).matchAll(/"(\d+)"/g)].map(x => x[1]));
+    }
+    return out;
+  }
+  function writeBonsNames(wbXml, byDate) {
+    let x = wbXml.replace(/<definedName name="_LDAC_\d{8}"[^>]*>[^<]*<\/definedName>/g, '');
+    const names = Object.keys(byDate).sort().filter(d => byDate[d].size).map(d =>
+      '<definedName name="_LDAC_' + d.replace(/-/g, '') + '" hidden="1">' + xmlEsc('{' + [...byDate[d]].sort().map(b => '"' + b + '"').join(',') + '}') + '</definedName>');
+    if (!names.length) return x;
+    if (/<definedNames>/.test(x)) x = x.replace('</definedNames>', names.join('') + '</definedNames>');
+    else if (/<definedNames\/>/.test(x)) x = x.replace('<definedNames/>', '<definedNames>' + names.join('') + '</definedNames>');
+    else x = x.replace('</sheets>', '</sheets><definedNames>' + names.join('') + '</definedNames>');
+    return x;
   }
 
   /* ---------- reconnaissance des reportings ---------- */
@@ -453,6 +475,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       }
     }
     if (!rep.type) return rep;
+    rep.bonsByDate = readBonsNames(wb.wbXml);
     // listes de valeurs (onglet Table Matrice si présent)
     const tm = wb.sheets.find(s => /table\s*matrice/i.test(s.name));
     if (tm) {
@@ -583,13 +606,26 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       const filled = r.poids != null && r.poids !== '';
       const same = filled && +r.poids === newPoids && N(r.bon) === N(newBon) && (+r.qte || 0) === a.qte;
       a.etat = r.virtual ? 'ajout' : !filled ? 'nouveau' : same ? 'identique' : 'different';
-      a.write = a.etat === 'nouveau' || a.etat === 'ajout' || (a.etat === 'different' && opts.ecraser);
+      // ligne déjà remplie par l'outil : on n'ajoute que les DAC pas encore comptés
+      const rec = (reports[a.type].bonsByDate || {})[r.date];
+      if (filled && !r.virtual && rec && a.sources.some(s => rec.has(s.dac.bon))) {
+        const neuves = a.sources.filter(s => !rec.has(s.dac.bon));
+        if (!neuves.length) a.etat = 'identique';
+        else {
+          const kg = neuves.reduce((t, s) => t + (s.l.poidsKg || 0), 0), q = neuves.reduce((t, s) => t + (s.l.qte || 0), 0);
+          a.vals = { poids: a.type === 'sncf' ? round((+r.poids || 0) + kg / 1000, 4) : round((+r.poids || 0) + kg, 3), bon: r.bon || newBon, qte: (+r.qte || 0) + q };
+          a.etat = 'cumul'; a.ajoutBons = [...new Set(neuves.map(s => s.dac.bon))];
+          P.infos.push((r.client || '') + ' le ' + isoToFr(r.date) + ' · ' + r.dechet + ' : ' + a.ajoutBons.length + ' nouveau(x) DAC ajouté(s) au total déjà saisi (' + fmtKg(kg) + ')');
+        }
+      }
+      a.write = a.etat === 'nouveau' || a.etat === 'ajout' || a.etat === 'cumul' || (a.etat === 'different' && opts.ecraser);
       if (a.bons.length > 1 && !a.groupBon) P.infos.push((r.client || '') + ' ligne ' + r.r + ' : ' + a.bons.length + ' bons cumulés (' + a.bons.join(', ') + ')');
       a.cols = { poids: Y.map.poids, bon: Y.map.bon, qte: Y.map.qte };
       if (a.type === 'clients' && a.groupBon && N(r.client) === 'MARCHE U' && Y.map.info && (!r.info || /^N\S* DAC SUR REGISTRE/i.test(N(r.info).replace(/^N /, 'N° ')) || /DAC SUR REGISTRE/i.test(String(r.info)))) {
         a.vals.info = 'N° DAC SUR REGISTRE ' + String(a.magasin || '').replace(/^UTILE\s+/i, '').trim();
         a.cols.info = Y.map.info;
-        if (a.etat === 'identique' && N(r.info) !== N(a.vals.info)) { a.etat = 'different'; a.write = opts.ecraser; }
+        if (a.etat === 'cumul' && r.info) delete a.vals.info, delete a.cols.info;
+        else if (a.etat === 'identique' && N(r.info) !== N(a.vals.info)) { a.etat = 'different'; a.write = opts.ecraser; }
       }
     }
     return P;
@@ -704,6 +740,16 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         if (virt.has(sheet)) xml = await appendRows(rep, sheet, xml, virt.get(sheet), type);
         put(rep.wb.zip, rep.wb.sheets.find(s => s.name === sheet).path, xml);
       }
+      // mémorise les DAC comptés dans ce fichier
+      const byDate = {}; for (const d in (rep.bonsByDate || {})) byDate[d] = new Set(rep.bonsByDate[d]);
+      for (const a of P.assign.values()) {
+        if (a.type !== type || !(a.write || a.etat === 'identique')) continue;
+        if (a.etat === 'different' && !a.write) continue;
+        const d = a.row.date; byDate[d] = byDate[d] || new Set();
+        for (const s of a.sources) byDate[d].add(s.dac.bon);
+        if (!a.sources.length) for (const b of a.bons) byDate[d].add(b);
+      }
+      put(rep.wb.zip, 'xl/workbook.xml', writeBonsNames(await rep.wb.zip.file('xl/workbook.xml').async('string'), byDate));
       await finalize(rep.wb, [...sheets].map(sn => rep.wb.sheets.find(s => s.name === sn).path));
       const data = await rep.wb.zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 }, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       let name = rep.fileName;
@@ -1128,7 +1174,7 @@ function render() {
       ls.map(l => {
         const a = findA(l); let st, where = '—';
         if (l.row) where = (l.row.virtual ? 'nouvelle ligne' : 'n°' + l.row.r) + ' · ' + esc(l.row.dechet) + (l.row.detail ? ' ' + esc(l.row.detail) : '') + ' · ' + esc(l.row.cont || '');
-        if (l.status === 'ok' && a) st = a.write ? '<span class="tag t-new">' + (a.etat === 'different' ? 'remplacé' : a.etat === 'ajout' ? 'ligne ajoutée' : 'à remplir') + '</span>' : a.etat === 'identique' ? '<span class="tag t-same">déjà à jour</span>' : '<span class="tag t-diff">déjà saisi</span>';
+        if (l.status === 'ok' && a) st = a.write ? '<span class="tag t-new">' + (a.etat === 'different' ? 'remplacé' : a.etat === 'ajout' ? 'ligne ajoutée' : a.etat === 'cumul' ? (a.ajoutBons && a.ajoutBons.includes(l.dac.bon) ? 'ajouté au total' : 'déjà compté') : 'à remplir') + '</span>' : a.etat === 'identique' ? '<span class="tag t-same">déjà à jour</span>' : '<span class="tag t-diff">déjà saisi</span>';
         else if (l.status === 'absent') st = '<span class="tag t-bad">pas prévu</span>';
         else st = '<span class="tag t-diff">à choisir</span>';
         return '<tr><td>' + esc(l.l.flux) + '</td><td>' + esc(l.l.contenant) + '</td><td class="n">' + fr(l.l.qte) + '</td><td class="n">' + (l.l.poidsKg == null ? '?' : fr(l.l.poidsKg) + ' kg') + '</td><td>' + where + '</td><td>' + st + '</td></tr>';
