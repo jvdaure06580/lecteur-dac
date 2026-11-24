@@ -893,6 +893,14 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
   }
 
   // lignes à ajouter dans les registres déposés
+
+  // ressemblance entre deux textes (1 = identiques), pour les fautes de frappe
+  function similar(a, b) {
+    a = N(a); b = N(b); if (!a || !b) return 0; if (a === b) return 1;
+    const m = a.length, n = b.length; let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; }
+    return 1 - prev[n] / Math.max(m, n);
+  }
   const regKey = reg => 'reg:' + N(reg.client) + '#' + N(String(reg.fileName).replace(/\.xlsx$/i, '').replace(/20\d\d/g, ''));
   function planRegistres(P, registres, corr) {
     const R = { parReg: new Map(), issues: [], reportingRows: new Set() };
@@ -908,12 +916,18 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       if (!ts && /CAP SUD/.test(nc)) { const t = targets.find(x => N(x) === 'MARCHE U'); if (t) ts = [t]; }
       let proches = [];
       if (!ts && nc) {
-        proches = targets.filter(x => N(x).startsWith(nc) || nc.startsWith(N(x)) || N(x).includes(nc));
+        // proches : même nom, ou nom presque identique (faute de frappe), ou même premier mot
+        const base = s => N(s).replace(/\b(SITE|BAT|BATIMENT)\b.*$/, '').trim();
+        const forts = targets.filter(x => N(x).startsWith(nc) || nc.startsWith(N(x)) || N(x).includes(nc) || similar(base(x), nc) >= 0.85);
+        const w = nc.split(' ')[0];
+        const faibles = w.length >= 3 ? targets.filter(x => !forts.includes(x) && N(x).split(' ')[0] === w) : [];
+        proches = forts.concat(faibles);
+        if (!forts.length) proches.forts = false;
         // le nom du fichier désigne un seul site (ex. « PAYAN 1 »)
         const fn = ' ' + N(reg.fileName.replace(/\.xlsx$/i, '')) + ' ';
         const parNom = proches.filter(x => fn.includes(' ' + N(x) + ' '));
         if (parNom.length === 1) ts = parNom;
-        else if (proches.length === 1) ts = proches;
+        else if (forts.length === 1 && !faibles.length) ts = forts;
       }
       reg.targets = ts || null;
       reg.target = ts ? ts.join(' + ') : null;
