@@ -76,6 +76,7 @@ details{margin-top:8px}summary{cursor:pointer;font-weight:600;min-height:44px;di
 .who label{font-weight:600}
 .who.ok input,.who.ok #btnPrenom,.who.ok #whoQ,.who.ok #whoBtns{display:none}
 .whobtns{display:flex;flex-wrap:wrap;gap:8px}
+.drop.locked{opacity:.45;cursor:not-allowed;filter:grayscale(1)}
 .scroll{overflow-x:auto}
 @media(max-width:600px){.drop{grid-template-columns:1fr;text-align:center}.drop svg{margin:auto}.issue{grid-template-columns:1fr}
 table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px}.stack td{display:flow-root;border:0;padding:3px 10px;padding-inline-start:8.5em;text-align:start}.stack td::before{content:attr(data-l);float:inline-start;width:7.5em;margin-inline-start:-8em;color:var(--mute)}.stack td:empty{display:none}}
@@ -1284,10 +1285,13 @@ T.send = () => {
 setInterval(() => { if (Date.now() - T.dernier < 180000) T.send(); }, 120000);
 addEventListener('pagehide', () => T.send());
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') T.send(); });
+const PRENOMS = ['Aurélie', 'Marine'];
 let connus = [];
 try { connus = JSON.parse(localStorage.getItem('dac-prenoms') || '[]'); } catch (e) {}
 function renderConnus() {
-  $('whoBtns').innerHTML = connus.map(n => '<button type="button" class="ghost" data-nom="' + esc(n) + '">' + esc(n) + '</button>').join('');
+  const liste = PRENOMS.length ? PRENOMS : connus;
+  $('prenom').classList.toggle('hide', !!PRENOMS.length); $('btnPrenom').classList.toggle('hide', !!PRENOMS.length);
+  $('whoBtns').innerHTML = liste.map(n => '<button type="button" class="ghost" data-nom="' + esc(n) + '">' + esc(n) + '</button>').join('');
 }
 function setPrenom(v) {
   v = String(v || '').trim().replace(/\s+/g, ' ');
@@ -1296,7 +1300,7 @@ function setPrenom(v) {
   T.prenom = v; T.session = Math.random().toString(36).slice(2) + Date.now().toString(36); T.debut = new Date(); T.actifS = 0; T.telech = 0; T.dac0 = S.dacs.length;
   connus = [v].concat(connus.filter(n => n.toLowerCase() !== v.toLowerCase())).slice(0, 8);
   try { localStorage.setItem('dac-prenoms', JSON.stringify(connus)); } catch (e) {}
-  $('who').classList.add('ok');
+  $('who').classList.add('ok'); $('drop').classList.remove('locked');
   $('whoTxt').innerHTML = 'Bonjour ' + esc(v) + ' · <button class="ghost small" id="btnChange" type="button">Changer</button>';
   $('loadMsg').textContent = ''; $('loadMsg').classList.remove('err');
 }
@@ -1304,9 +1308,13 @@ $('btnPrenom').addEventListener('click', () => setPrenom($('prenom').value));
 $('prenom').addEventListener('keydown', e => { if (e.key === 'Enter') setPrenom($('prenom').value); });
 $('who').addEventListener('click', e => {
   const b = e.target.closest('[data-nom]'); if (b) { setPrenom(b.dataset.nom); return; }
-  if (e.target.id === 'btnChange') { T.send(); T.prenom = ''; $('who').classList.remove('ok'); $('whoTxt').textContent = ''; $('prenom').value = ''; renderConnus(); }
+  if (e.target.id === 'btnChange') { T.send(); T.prenom = ''; $('drop').classList.add('locked'); $('who').classList.remove('ok'); $('whoTxt').textContent = ''; $('prenom').value = ''; renderConnus();
+$('drop').classList.add('locked');
+$('drop').addEventListener('click', e => { if (!T.prenom) { e.preventDefault(); $('loadMsg').textContent = 'Choisis d\'abord ton prénom en haut de la page.'; $('loadMsg').classList.add('err'); } }, true); }
 });
 renderConnus();
+$('drop').classList.add('locked');
+$('drop').addEventListener('click', e => { if (!T.prenom) { e.preventDefault(); $('loadMsg').textContent = 'Choisis d\'abord ton prénom en haut de la page.'; $('loadMsg').classList.add('err'); } }, true);
 loadCorr();
 }
 </script>
