@@ -127,6 +127,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <p class="msg" id="outMsg"></p>
   </section>
 
+  <p class="msg" id="version">Version du 24/11/2026 14:45</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -558,6 +559,14 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         if (!fm) { ligne.status = 'flux'; P.issues.push({ kind: 'flux', type, dac, l, target, msg: 'Déchet « ' + l.flux + ' » : à quoi correspond-il ?', options: optionsFlux(rep, Y) }); continue; }
         const [dech, det] = type === 'sncf' ? [fm, ''] : fm.split('|');
         let c = dayRows.filter(r => N(r.dechet) === N(dech) && N(r.detail) === N(det));
+        if (!c.length && !det && type === 'clients') {
+          // le détail du reporting (ex. GLASSINES) peut figurer comme contenant ou dans le nom du déchet sur le DAC
+          const memes = dayRows.filter(r => N(r.dechet) === N(dech) && !P.taken.has(type + '|' + year + '|' + r.r));
+          const t = ' ' + N(l.contenant + ' ' + l.flux) + ' ';
+          const parDetail = memes.filter(r => r.detail && t.includes(' ' + N(r.detail) + ' '));
+          if (parDetail.length) c = parDetail;
+          else if (memes.length === 1 && memes[0].detail && !dayRows.some(r => N(r.dechet) === N(dech) && !r.detail)) c = memes;
+        }
         if (c.length > 1) {
           const rk = r => type + '|' + year + '|' + r.r;
           // lignes déjà prises par un autre DAC du même client (autre site) : exclues
@@ -580,6 +589,10 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
           if (c.length > 1) {
             const same = c.filter(r => N(r.cont) === N(l.contenant)); if (same.length === 1) c = same;
           }
+        }
+        if (!c.length && dayRows.length && !(l.poidsKg > 0) && !(l.qte > 0)) {
+          // déchet non prévu ce jour-là et rien collecté : on n'ajoute pas de ligne vide au reporting
+          ligne.status = 'ignore'; continue;
         }
         if (!c.length) {
           const v = virtualRow(P, type, year, Y, rep, dac, l, target, dech, det);
@@ -1254,6 +1267,7 @@ function render() {
         if (l.row) where = (l.row.virtual ? 'nouvelle ligne' : 'n°' + l.row.r) + ' · ' + esc(l.row.dechet) + (l.row.detail ? ' ' + esc(l.row.detail) : '') + ' · ' + esc(l.row.cont || '');
         if (l.status === 'ok' && a) st = a.write ? '<span class="tag t-new">' + (a.etat === 'different' ? 'remplacé' : a.etat === 'ajout' ? 'ligne ajoutée' : a.etat === 'cumul' ? (a.ajoutBons && a.ajoutBons.includes(l.dac.bon) ? 'ajouté au total' : 'déjà compté') : 'à remplir') + '</span>' : a.etat === 'identique' ? '<span class="tag t-same">déjà à jour</span>' : '<span class="tag t-diff">déjà saisi</span>';
         else if (l.status === 'absent') st = '<span class="tag t-bad">pas prévu</span>';
+        else if (l.status === 'ignore') st = '<span class="tag t-same">0 kg, non prévu : ignoré</span>';
         else st = '<span class="tag t-diff">à choisir</span>';
         return '<tr><td>' + esc(l.l.flux) + '</td><td>' + esc(l.l.contenant) + '</td><td class="n">' + fr(l.l.qte) + '</td><td class="n">' + (l.l.poidsKg == null ? '?' : fr(l.l.poidsKg) + ' kg') + '</td><td>' + where + '</td><td>' + st + '</td></tr>';
       }).join('') + '</tbody></table></div>';
