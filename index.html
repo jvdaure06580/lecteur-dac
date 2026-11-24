@@ -72,6 +72,10 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 details{margin-top:8px}summary{cursor:pointer;font-weight:600;min-height:44px;display:flex;align-items:center}
 .corr td{font-size:13.5px}
 .hide{display:none}
+.who{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;background:var(--panel);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+.who label{font-weight:600}
+.who.ok input,.who.ok #btnPrenom,.who.ok #whoQ,.who.ok #whoBtns{display:none}
+.whobtns{display:flex;flex-wrap:wrap;gap:8px}
 .scroll{overflow-x:auto}
 @media(max-width:600px){.drop{grid-template-columns:1fr;text-align:center}.drop svg{margin:auto}.issue{grid-template-columns:1fr}
 table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px}.stack td{display:flow-root;border:0;padding:3px 10px;padding-inline-start:8.5em;text-align:start}.stack td::before{content:attr(data-l);float:inline-start;width:7.5em;margin-inline-start:-8em;color:var(--mute)}.stack td:empty{display:none}}
@@ -84,6 +88,13 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
   <h1>Lecteur de DAC</h1>
   <p class="lead">Tout se passe dans ton navigateur : les fichiers ne sont envoyés nulle part. Dépose les DAC de la période avec le reporting clients, le reporting Marché SNCF et les registres des clients concernés. L'outil remplit le poids, le N° de bon et la quantité sur les lignes prévues du reporting, et ajoute les collectes aux registres déposés.</p>
 
+  <div class="who" id="who">
+    <b id="whoQ">Qui utilise l'outil ?</b>
+    <span id="whoBtns" class="whobtns"></span>
+    <input type="text" id="prenom" autocomplete="given-name" placeholder="Autre prénom">
+    <button class="small" id="btnPrenom" type="button">Valider</button>
+    <span id="whoTxt"></span>
+  </div>
   <section class="step">
     <h2>1. Fichiers</h2>
     <label class="drop" id="drop" for="pick">
@@ -1079,6 +1090,8 @@ async function readScan(images) {
   return d;
 }
 async function addFiles(list) {
+  if (!T.prenom) { $('prenom').focus(); $('loadMsg').textContent = 'Indique d\'abord ton prénom en haut de la page.'; $('loadMsg').classList.add('err'); return; }
+  T.act();
   $('loadMsg').classList.remove('err');
   for (const f of list) {
     const entry = { name: f.name, kind: '…', state: 'lecture…' }; S.files.push(entry); renderFiles();
@@ -1233,7 +1246,7 @@ $('outBtns').addEventListener('click', async e => {
     try {
       const reg = S.registres.find(r => r.fileName === rb.dataset.reg); const b = S.R.parReg.get(reg);
       const out = await C.buildRegistre(JSZip, reg, b.lignes);
-      saveFile(out.name, new Blob([out.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      saveFile(out.name, new Blob([out.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })); T.telech++; T.send();
       $('outMsg').textContent = out.name + ' : ' + out.lignes + ' ligne(s) ajoutée(s)' + (out.ajout ? ' dont ' + out.ajout + ' nouvelle(s) ligne(s) créée(s) dans le tableau' : '') + '. Les codes UE et traitements se calculent à l\'ouverture dans Excel.';
     } catch (err) { $('outMsg').textContent = err && err.code === 'declined' ? 'Téléchargement annulé.' : 'Échec : ' + ((err && err.message) || err); }
     finally { rb.disabled = false; }
@@ -1246,11 +1259,54 @@ $('outBtns').addEventListener('click', async e => {
     const sub = { assign: new Map([...S.plan.assign].filter(([, a]) => a.type === t)) };
     const out = (await C.buildOutputs({ [t]: S.reports[t] }, sub, today, $('optRegOui').checked && S.R ? S.R.reportingRows : null))[0];
     if (!out) { $('outMsg').textContent = 'Rien à écrire dans ce fichier.'; return; }
-    saveFile(out.name, new Blob([out.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    saveFile(out.name, new Blob([out.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })); T.telech++; T.send();
     $('outMsg').textContent = out.name + ' : ' + out.lignes + ' ligne(s) remplie(s). Remets-le sur le serveur à la place de l\'ancien.';
   } catch (err) { $('outMsg').textContent = err && err.code === 'declined' ? 'Téléchargement annulé.' : 'Échec : ' + ((err && err.message) || err); }
   finally { b.disabled = false; }
 });
+
+/* ---- suivi du temps passé (voir la note de service) ---- */
+const SUIVI_URL = 'https://script.google.com/macros/s/AKfycbzUfms-G3ATqbmXcI28-dP5Ob9KsHXVseOAFmym0Yzg7EIb330jIpqxrufLDRT6MXLI/exec';
+const T = { prenom: '', session: Math.random().toString(36).slice(2) + Date.now().toString(36), debut: new Date(), dernier: Date.now(), actifS: 0, telech: 0, envoye: 0 };
+T.act = () => { T.dernier = Date.now(); };
+['mousemove', 'keydown', 'click', 'scroll', 'drop', 'touchstart'].forEach(ev => document.addEventListener(ev, T.act, { passive: true }));
+setInterval(() => { if (document.visibilityState === 'visible' && Date.now() - T.dernier < 120000) T.actifS += 10; }, 10000);
+const hm = d => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+T.send = () => {
+  const nDac = Math.max(0, S.dacs.length - (T.dac0 || 0));
+  if (!SUIVI_URL || !T.prenom || (T.actifS < 30 && !nDac)) return;
+  const now = new Date();
+  const d = { session: T.session, prenom: T.prenom, date: T.debut.toLocaleDateString('fr-FR'), debut: hm(T.debut), fin: hm(now),
+    actifMin: Math.round(T.actifS / 6) / 10, ouvertMin: Math.round((now - T.debut) / 6000) / 10, dac: nDac, telechargements: T.telech };
+  try { fetch(SUIVI_URL, { method: 'POST', mode: 'no-cors', keepalive: true, body: JSON.stringify(d) }).catch(() => {}); } catch (e) {}
+  T.envoye = Date.now();
+};
+setInterval(() => { if (Date.now() - T.dernier < 180000) T.send(); }, 120000);
+addEventListener('pagehide', () => T.send());
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') T.send(); });
+let connus = [];
+try { connus = JSON.parse(localStorage.getItem('dac-prenoms') || '[]'); } catch (e) {}
+function renderConnus() {
+  $('whoBtns').innerHTML = connus.map(n => '<button type="button" class="ghost" data-nom="' + esc(n) + '">' + esc(n) + '</button>').join('');
+}
+function setPrenom(v) {
+  v = String(v || '').trim().replace(/\s+/g, ' ');
+  if (!v) return;
+  v = v.charAt(0).toUpperCase() + v.slice(1);
+  T.prenom = v; T.session = Math.random().toString(36).slice(2) + Date.now().toString(36); T.debut = new Date(); T.actifS = 0; T.telech = 0; T.dac0 = S.dacs.length;
+  connus = [v].concat(connus.filter(n => n.toLowerCase() !== v.toLowerCase())).slice(0, 8);
+  try { localStorage.setItem('dac-prenoms', JSON.stringify(connus)); } catch (e) {}
+  $('who').classList.add('ok');
+  $('whoTxt').innerHTML = 'Bonjour ' + esc(v) + ' · <button class="ghost small" id="btnChange" type="button">Changer</button>';
+  $('loadMsg').textContent = ''; $('loadMsg').classList.remove('err');
+}
+$('btnPrenom').addEventListener('click', () => setPrenom($('prenom').value));
+$('prenom').addEventListener('keydown', e => { if (e.key === 'Enter') setPrenom($('prenom').value); });
+$('who').addEventListener('click', e => {
+  const b = e.target.closest('[data-nom]'); if (b) { setPrenom(b.dataset.nom); return; }
+  if (e.target.id === 'btnChange') { T.send(); T.prenom = ''; $('who').classList.remove('ok'); $('whoTxt').textContent = ''; $('prenom').value = ''; renderConnus(); }
+});
+renderConnus();
 loadCorr();
 }
 </script>
