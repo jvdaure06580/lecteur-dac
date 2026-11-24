@@ -127,7 +127,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <p class="msg" id="outMsg"></p>
   </section>
 
-  <p class="msg" id="version">Version du 24/11/2026 16:05</p>
+  <p class="msg" id="version">Version du 24/11/2026 16:20</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -898,7 +898,21 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         if (le) for (const r of readRows(await sheetXml(wb, le.name), wb.sst, LETTERS, 2)) for (const L of ['B', 'C']) if (r[L] && /\d{5}/.test(String(r[L]))) lists.exutoires.push(String(r[L]));
         const cd = wb.sheets.find(s => /code\s*dechet/i.test(s.name));
         if (cd) for (const r of readRows(await sheetXml(wb, cd.name), wb.sst, ['C'], 2)) if (r.C) lists.types.push(String(r.C).trim());
-        lists.exutoires = [...new Map(lists.exutoires.map(e => [N(e), e])).values()];
+        // liste déroulante de la colonne « Exutoire final » (ex. 'MATRICE CLIENTS'!$M$4:$M$26) : on reprend ses textes exacts
+        lists.deroulante = [];
+        const colExu = map.exu;
+        for (const dv of xml.matchAll(/<x14:dataValidation\b[\s\S]*?<\/x14:dataValidation>|<dataValidation\b[\s\S]*?<\/dataValidation>/g)) {
+          const sq = (/<xm:sqref>([^<]+)<\/xm:sqref>/.exec(dv[0]) || /sqref="([^"]+)"/.exec(dv[0]) || [])[1] || '';
+          if (!sq.split(' ').some(p => new RegExp('^\\$?' + colExu + '\\$?\\d*(:\\$?' + colExu + '\\$?\\d*)?$').test(p))) continue;
+          const f = xmlUnesc((/<xm:f>([^<]+)<\/xm:f>/.exec(dv[0]) || /<formula1>([^<]+)<\/formula1>/.exec(dv[0]) || [])[1] || '');
+          const m = /^'?([^'!]+)'?!\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/.exec(f.trim());
+          if (!m) continue;
+          const shL = wb.sheets.find(s => s.name === m[1]); if (!shL) continue;
+          for (const r of readRows(await sheetXml(wb, shL.name), wb.sst, [m[2]], +m[3], m[5] ? +m[5] : undefined)) {
+            const v = r[m[2]]; if (v != null && /\d{5}/.test(String(v))) lists.deroulante.push(String(v));
+          }
+        }
+        lists.exutoires = [...new Map(lists.deroulante.concat(lists.exutoires).map(e => [N(e), e])).values()];
         return { kind: 'registre', codes, fileName, buf: buf.slice ? buf.slice(0) : buf, wb, sheet: sh.name, head: row.r, map, client, table, rows, lists };
       }
     }
@@ -983,6 +997,14 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
           continue;
         }
         const bonTxt = isMU ? String(a.dac.client).trim() + '\n' + 'N°' + a.dac.bon : reg.targets.length > 1 ? a.site + '\n' + 'N°' + a.dac.bon : 'N°' + a.dac.bon;
+        // même texte que la liste déroulante du registre, s'il y en a une
+        const dl = reg.lists.deroulante || [];
+        if (dl.length) {
+          const ne = N(exu), premier = N(String(exu).split('\n')[0]);
+          const exact = dl.find(x => N(x) === ne);
+          const parNom = dl.filter(x => premier && N(x).startsWith(premier + ' '));
+          if (exact) exu = exact; else if (parNom.length === 1) exu = parNom[0];
+        }
         bucket.lignes.push({ type: a.type, date: a.dac.date, bon: bonTxt, exu, t: round(a.kg / 1000, 4), dac: a.dac });
         for (const r of a.rows) R.reportingRows.add(r);
       }
