@@ -893,32 +893,55 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
   }
 
   // lignes à ajouter dans les registres déposés
+  const regKey = reg => 'reg:' + N(reg.client) + '#' + N(String(reg.fileName).replace(/\.xlsx$/i, '').replace(/20\d\d/g, ''));
   function planRegistres(P, registres, corr) {
     const R = { parReg: new Map(), issues: [], reportingRows: new Set() };
     if (!registres.length) return R;
     const targets = [...new Set(P.lignes.filter(l => l.type === 'clients').map(l => l.target))];
     for (const reg of registres) {
-      let t = corr.registres[N(reg.client)];
-      if (!t) t = targets.find(x => N(x) === N(reg.client));
-      if (!t && /CAP SUD/.test(N(reg.client))) t = targets.find(x => N(x) === 'MARCHE U');
-      if (!t && reg.client) { const nc = N(reg.client); t = targets.find(x => nc.includes(N(x)) || N(x).includes(nc)); }
-      reg.target = t || null;
+      const fk = regKey(reg);
+      let ts = null;
+      const saved = corr.registres[fk] || corr.registres[N(reg.client)];
+      if (saved) ts = String(saved).split('||').filter(Boolean);
+      const nc = N(reg.client);
+      if (!ts) { const t = targets.find(x => N(x) === nc); if (t) ts = [t]; }
+      if (!ts && /CAP SUD/.test(nc)) { const t = targets.find(x => N(x) === 'MARCHE U'); if (t) ts = [t]; }
+      let proches = [];
+      if (!ts && nc) {
+        proches = targets.filter(x => N(x).startsWith(nc) || nc.startsWith(N(x)) || N(x).includes(nc));
+        // le nom du fichier désigne un seul site (ex. « PAYAN 1 »)
+        const fn = ' ' + N(reg.fileName.replace(/\.xlsx$/i, '')) + ' ';
+        const parNom = proches.filter(x => fn.includes(' ' + N(x) + ' '));
+        if (parNom.length === 1) ts = parNom;
+        else if (proches.length === 1) ts = proches;
+      }
+      reg.targets = ts || null;
+      reg.target = ts ? ts.join(' + ') : null;
       R.parReg.set(reg, { lignes: [], deja: 0 });
-      if (!t) R.issues.push({ kind: 'registre', reg, msg: 'Registre « ' + (reg.client || reg.fileName) + ' » : aucun DAC de ce client dans les fichiers déposés. S\'il porte un autre nom dans le reporting, choisis-le :', options: targets.slice().sort() });
+      if (!ts) {
+        const opts = [];
+        if (proches.length > 1) opts.push({ value: proches.join('||'), label: 'Tous les sites : ' + proches.join(' + ') });
+        for (const x of proches) opts.push({ value: x, label: x });
+        for (const x of targets.slice().sort()) if (!proches.includes(x)) opts.push({ value: x, label: x });
+        R.issues.push({ kind: 'registre', reg, key: fk, msg: proches.length > 1
+          ? 'Registre « ' + reg.client + ' » : il regroupe quels sites ?'
+          : 'Registre « ' + (reg.client || reg.fileName) + ' » : aucun DAC de ce client dans les fichiers déposés. S\'il porte un autre nom dans le reporting, choisis-le :', options: opts });
+      }
     }
     for (const reg of registres) {
-      if (!reg.target) continue;
+      if (!reg.targets) continue;
       const bucket = R.parReg.get(reg);
-      const isMU = N(reg.target) === 'MARCHE U';
+      const tset = new Set(reg.targets.map(N));
+      const isMU = tset.has('MARCHE U');
       const acc = new Map();
       for (const l of P.lignes) {
-        if (l.type !== 'clients' || l.status !== 'ok' || N(l.target) !== N(reg.target)) continue;
+        if (l.type !== 'clients' || l.status !== 'ok' || !tset.has(N(l.target))) continue;
         if (!(l.l.poidsKg > 0)) continue;
         const k = N(l.row.dechet) + '|' + N(l.row.detail);
         const type = corr.regTypes[k] || corr.regTypes[N(l.row.dechet) + '|'];
         if (!type) { if (!R.issues.some(i => i.kind === 'regtype' && i.k === k)) R.issues.push({ kind: 'regtype', reg, k, msg: 'Registre ' + reg.client + ' : quel type de déchet pour « ' + l.row.dechet + (l.row.detail ? ' ' + l.row.detail : '') + ' » ?', options: reg.lists.types }); continue; }
         const ak = l.dac.bon + '|' + type;
-        const a = acc.get(ak) || { dac: l.dac, type, kg: 0, dests: [], rows: [] };
+        const a = acc.get(ak) || { dac: l.dac, type, kg: 0, dests: [], rows: [], site: String(l.target).trim() };
         a.kg += l.l.poidsKg; if (l.l.destinataire && !a.dests.includes(l.l.destinataire)) a.dests.push(l.l.destinataire);
         a.rows.push(l.row); acc.set(ak, a);
       }
@@ -932,7 +955,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
           if (!R.issues.some(i => i.ik === ik)) R.issues.push({ kind: 'exutoire', ik, reg, dest: d, type: a.type, msg: 'Exutoire final à inscrire au registre pour ' + a.type + (d ? ' déposé chez « ' + d.nom + ' »' : ' (pas de destinataire sur le DAC)') + ' : choisis dans la liste ou « Autre » pour l\'écrire', options: (d ? [{ value: d.nom + (d.adresse ? '\n' + d.adresse : ''), label: 'Destinataire du DAC : ' + d.nom + (d.adresse ? ' ' + d.adresse : '') }] : []).concat(Object.values(EXU).map(e => ({ value: e, label: e })), reg.lists.exutoires.map(e => ({ value: e, label: e }))), libre: true, dac: a.dac });
           continue;
         }
-        const bonTxt = isMU ? String(a.dac.client).trim() + '\n' + 'N°' + a.dac.bon : 'N°' + a.dac.bon;
+        const bonTxt = isMU ? String(a.dac.client).trim() + '\n' + 'N°' + a.dac.bon : reg.targets.length > 1 ? a.site + '\n' + 'N°' + a.dac.bon : 'N°' + a.dac.bon;
         bucket.lignes.push({ type: a.type, date: a.dac.date, bon: bonTxt, exu, t: round(a.kg / 1000, 4), dac: a.dac });
         for (const r of a.rows) R.reportingRows.add(r);
       }
@@ -1068,7 +1091,7 @@ function setCorr(kind, key, val) { S.saved[kind] = S.saved[kind] || {}; S.saved[
 function renderCorr() {
   const rows = [];
   for (const k of Object.keys(TYPES)) for (const [a, b] of Object.entries(S.saved[k] || {}))
-    rows.push('<tr><td>' + TYPES[k] + '</td><td>' + esc(a.replace(/^site:/, '').replace('#', ' — ').replace(/\|/g, ' · ')) + '</td><td>' + esc(String(b).replace('§', ' · ').replace(/\|$/, '').replace('|', ' / ')) + '</td><td><button class="ghost small" data-del="' + esc(k) + '" data-key="' + esc(a) + '">Supprimer</button></td></tr>');
+    rows.push('<tr><td>' + TYPES[k] + '</td><td>' + esc(a.replace(/^(site|reg):/, '').replace('#', ' — ').replace(/\|/g, ' · ')) + '</td><td>' + esc(String(b).replace(/\|\|/g, ' + ').replace('§', ' · ').replace(/\|$/, '').replace('|', ' / ')) + '</td><td><button class="ghost small" data-del="' + esc(k) + '" data-key="' + esc(a) + '">Supprimer</button></td></tr>');
   $('corrBody').innerHTML = rows.join('') || '<tr><td colspan="4">Aucune pour l\'instant : les correspondances de base (cartons, DIB, canettes, gares SNCF…) sont déjà intégrées.</td></tr>';
 }
 $('corrBody').addEventListener('click', e => { const b = e.target.closest('[data-del]'); if (!b) return; delete S.saved[b.dataset.del][b.dataset.key]; saveCorr(); if (S.plan) run(); });
@@ -1261,7 +1284,7 @@ $('issues').addEventListener('click', async e => {
   if (!v) return;
   if (i.kind === 'client') { if (i.type === 'sncf') setCorr('sncfSites', C.N(i.dac.client), v); else setCorr('clients', C.siteKey(i.dac), v); }
   else if (i.kind === 'flux') setCorr(i.type === 'sncf' ? 'sncfFlux' : 'flux', C.N(i.l.flux), v);
-  else if (i.kind === 'registre') setCorr('registres', C.N(i.reg.client), v);
+  else if (i.kind === 'registre') setCorr('registres', i.key, v);
   else if (i.kind === 'regtype') setCorr('regTypes', i.k, v);
   else if (i.kind === 'exutoire') { const dn = C.N(i.dest ? i.dest.nom : ''); setCorr('exutoires', dn + '|' + C.N(i.type), v); }
   else if (i.kind === 'choix') { if (i.type === 'sncf') setCorr('sncfCont', C.N(i.target) + '|' + C.N(i.l.contenant), v.split('§')[0]); else setCorr('cont', C.siteKey(i.dac) + '|' + C.N(i.l.flux) + '|' + C.N(i.l.contenant), v); }
