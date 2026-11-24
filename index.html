@@ -127,7 +127,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <p class="msg" id="outMsg"></p>
   </section>
 
-  <p class="msg" id="version">Version du 24/11/2026 14:45</p>
+  <p class="msg" id="version">Version du 24/11/2026 15:25</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -1004,7 +1004,12 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     const lastFilled = Math.max(reg.head, ...filled);
     // emplacements libres préparés (après la dernière ligne remplie)
     const slots = [];
-    for (let r = lastFilled + 1; r <= tEnd; r++) if (!filled.has(r) && rowsXml.has(r) && /<f>/.test(rowsXml.get(r)) && /ht="/.test(rowsXml.get(r))) slots.push(r);
+    // modèle des lignes de collecte (lignes blanches) : style de la 1re cellule et hauteur des lignes déjà remplies
+    const sig = r => { const x = rowsXml.get(r) || ''; const s = (/<c r="A\d+"[^>]*?\bs="(\d+)"/.exec(x) || [])[1] || ''; const h = (/<row [^>]*?\bht="([\d.]+)"/.exec(x) || [])[1] || ''; return s + '|' + h; };
+    const comptes = {}; for (const r of filled) comptes[sig(r)] = (comptes[sig(r)] || 0) + 1;
+    const modele = Object.keys(comptes).sort((a, b) => comptes[b] - comptes[a])[0];
+    // emplacements libres : lignes blanches vides après la dernière collecte (jamais la barre de fin du tableau)
+    for (let r = lastFilled + 1; r <= tEnd; r++) if (!filled.has(r) && rowsXml.has(r) && (modele ? sig(r) === modele : /<f>/.test(rowsXml.get(r)))) slots.push(r); else if (slots.length || r > lastFilled) { if (!(modele ? sig(r) === modele : true)) break; }
     const need = lignes.length - slots.length;
     if (need > 0) {
       const ins = (slots.length ? slots[slots.length - 1] : lastFilled) + 1;
