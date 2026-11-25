@@ -127,7 +127,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <p class="msg" id="outMsg"></p>
   </section>
 
-  <p class="msg" id="version">Version du 25/11/2026 10:00</p>
+  <p class="msg" id="version">Version du 25/11/2026 12:00</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -543,6 +543,14 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       if (!target && type === 'clients') { // même nom sans espaces ni ponctuation (COOPER VISION = COOPERVISION)
         const c = NC(dac.client), hits = c.length >= 4 ? [...new Set(optionsClients(rep, Y).filter(o => NC(o) === c))] : [];
         if (hits.length === 1) target = hits[0]; }
+      if (!target && type === 'clients' && / \/ /.test(String(dac.client))) {
+        // « CPAM NICE PESSICART / BATIMENT CHAGALL » : site d'un client regroupé sur une seule ligne du reporting
+        const base = N(String(dac.client).split(' / ')[0]), ws = base.split(' ').filter(w => w.length >= 3);
+        const opts = optionsClients(rep, Y).filter(o => ws[0] && N(o).split(/[^A-Z0-9]+/).includes(ws[0]));
+        const has = (o, w) => (' ' + N(o).replace(/[^A-Z0-9]+/g, ' ') + ' ').includes(' ' + w + ' ');
+        const uniq = ws.slice(1).filter(w => w.length >= 5 && opts.filter(o => has(o, w)).length === 1);
+        const cands = [...new Set(uniq.map(w => opts.find(o => has(o, w))))];
+        if (cands.length === 1) target = cands[0]; }
       if (!target && type === 'clients' && /^UTILE\b/.test(N(dac.client))) { const mu = Y.rows.find(r => N(r.client) === 'MARCHE U'); if (mu) target = mu.client; }
       if (!target) { const opts0 = optionsClients(rep, Y), w0 = N(dac.client).split(' ')[0] || '';
         const c0 = NC(dac.client);
@@ -1001,7 +1009,8 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
           if (!R.issues.some(i => i.ik === ik)) R.issues.push({ kind: 'exutoire', ik, reg, dest: d, type: a.type, msg: 'Exutoire final à inscrire au registre pour ' + a.type + (d ? ' déposé chez « ' + d.nom + ' »' : ' (pas de destinataire sur le DAC)') + ' : choisis dans la liste ou « Autre » pour l\'écrire', options: (d ? [{ value: d.nom + (d.adresse ? '\n' + d.adresse : ''), label: 'Destinataire du DAC : ' + d.nom + (d.adresse ? ' ' + d.adresse : '') }] : []).concat(Object.values(EXU).map(e => ({ value: e, label: e })), reg.lists.exutoires.map(e => ({ value: e, label: e }))), libre: true, dac: a.dac });
           continue;
         }
-        const bonTxt = isMU ? String(a.dac.client).trim() + '\n' + 'N°' + a.dac.bon : reg.targets.length > 1 ? a.site + '\n' + 'N°' + a.dac.bon : 'N°' + a.dac.bon;
+        const batiment = / \/ /.test(String(a.dac.client)) ? String(a.dac.client).split(' / ').pop().trim() : '';
+        const bonTxt = isMU ? String(a.dac.client).trim() + '\n' + 'N°' + a.dac.bon : batiment ? batiment + '\n' + 'N°' + a.dac.bon : reg.targets.length > 1 ? a.site + '\n' + 'N°' + a.dac.bon : 'N°' + a.dac.bon;
         // même texte que la liste déroulante du registre, s'il y en a une
         const dl = reg.lists.deroulante || [];
         if (dl.length) {
