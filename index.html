@@ -127,7 +127,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <p class="msg" id="outMsg"></p>
   </section>
 
-  <p class="msg" id="version">Version du 25/11/2026 09:45</p>
+  <p class="msg" id="version">Version du 25/11/2026 10:00</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -539,7 +539,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       if (!Y) { P.issues.push({ kind: 'fichier', dac, msg: 'Pas d\'onglet ' + year + ' dans ' + rep.fileName }); continue; }
       // client
       let target = type === 'sncf' ? corr.sncfSites[N(dac.client)] : (corr.clients[siteKey(dac)] || corr.clients[N(dac.client)]);
-      if (!target && type === 'clients') { const hit = Y.rows.find(r => N(r.client) === N(dac.client)); if (hit) target = hit.client; }
+      if (!target && type === 'clients') { const hit = Y.rows.find(r => NC(r.client) === NC(dac.client)); if (hit) target = hit.client; }
       if (!target && type === 'clients') { // même nom sans espaces ni ponctuation (COOPER VISION = COOPERVISION)
         const c = NC(dac.client), hits = c.length >= 4 ? [...new Set(optionsClients(rep, Y).filter(o => NC(o) === c))] : [];
         if (hits.length === 1) target = hits[0]; }
@@ -548,7 +548,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         const c0 = NC(dac.client);
         const proches = opts0.filter(o => (w0.length >= 3 && N(o).startsWith(w0)) || similar(NC(o), c0) >= 0.8).sort((a, b) => similar(NC(b), c0) - similar(NC(a), c0));
         P.issues.push({ kind: 'client', type, dac, msg: (type === 'sncf' ? 'Site SNCF inconnu : ' : 'Client inconnu : ') + dac.client + (dac.adresse ? ' (' + dac.adresse + ')' : ''), options: proches.concat(opts0.filter(o => !proches.includes(o))) }); continue; }
-      const dayRows = Y.rows.filter(r => r.date === dac.date && N(r.client) === N(target));
+      const dayRows = Y.rows.filter(r => r.date === dac.date && NC(r.client) === NC(target));
       const gk = type + '|' + year + '|' + N(target) + '|' + dac.date;
       if (!groups.has(gk)) groups.set(gk, { type, year, rows: dayRows, dacs: [], target, date: dac.date });
       groups.get(gk).dacs.push(dac);
@@ -562,14 +562,14 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         P.lignes.push(ligne);
         if (!fm) { ligne.status = 'flux'; P.issues.push({ kind: 'flux', type, dac, l, target, msg: 'Déchet « ' + l.flux + ' » : à quoi correspond-il ?', options: optionsFlux(rep, Y) }); continue; }
         const [dech, det] = type === 'sncf' ? [fm, ''] : fm.split('|');
-        let c = dayRows.filter(r => N(r.dechet) === N(dech) && N(r.detail) === N(det));
+        let c = dayRows.filter(r => NC(r.dechet) === NC(dech) && NC(r.detail) === NC(det));
         if (!c.length && !det && type === 'clients') {
           // le détail du reporting (ex. GLASSINES) peut figurer comme contenant ou dans le nom du déchet sur le DAC
-          const memes = dayRows.filter(r => N(r.dechet) === N(dech) && !P.taken.has(type + '|' + year + '|' + r.r));
+          const memes = dayRows.filter(r => NC(r.dechet) === NC(dech) && !P.taken.has(type + '|' + year + '|' + r.r));
           const t = ' ' + N(l.contenant + ' ' + l.flux) + ' ';
           const parDetail = memes.filter(r => r.detail && t.includes(' ' + N(r.detail) + ' '));
           if (parDetail.length) c = parDetail;
-          else if (memes.length === 1 && memes[0].detail && !dayRows.some(r => N(r.dechet) === N(dech) && !r.detail)) c = memes;
+          else if (memes.length === 1 && memes[0].detail && !dayRows.some(r => NC(r.dechet) === NC(dech) && !r.detail)) c = memes;
         }
         if (c.length > 1) {
           const rk = r => type + '|' + year + '|' + r.r;
@@ -581,7 +581,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
           const ck = type === 'sncf' ? corr.sncfCont[N(target) + '|' + N(l.contenant)] || corr.sncfCont[N(l.contenant)] : corr.cont[sk] || corr.cont[contKey(target, l.flux, l.contenant)] || corr.cont[contKey(dac.client, l.flux, l.contenant)];
           if (ck && c.length > 1) {
             const [kc, ki] = String(ck).split('§');
-            const c2 = c.filter(r => N(r.cont) === N(kc) && (ki === undefined || N(r.info) === N(ki)));
+            const c2 = c.filter(r => NC(r.cont) === NC(kc) && (ki === undefined || NC(r.info) === NC(ki)));
             if (c2.length) c = c2;
           }
           // nom du site écrit dans « Autres informations » et retrouvé sur le DAC
@@ -591,7 +591,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
             if (vus.length && vus.length < c.length) c = vus;
           }
           if (c.length > 1) {
-            const same = c.filter(r => N(r.cont) === N(l.contenant)); if (same.length === 1) c = same;
+            const same = c.filter(r => NC(r.cont) === NC(l.contenant)); if (same.length === 1) c = same;
           }
         }
         if (!c.length && dayRows.length && !(l.poidsKg > 0) && !(l.qte > 0)) {
@@ -679,14 +679,14 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
   }
   // ligne absente du reporting : préparée pour être ajoutée à la fin
   function virtualRow(P, type, year, Y, rep, dac, l, target, dech, det) {
-    const canon = (val, list) => { const n = N(val); const hit = list.find(x => N(x) === n); return hit != null ? hit : val; };
+    const canon = (val, list) => { const n = NC(val); const hit = list.find(x => NC(x) === n); return hit != null ? hit : val; };
     const dechC = canon(dech, Y.rows.map(r => r.dechet).filter(Boolean).concat(rep.lists.dechets));
     const detC = type === 'clients' ? (det ? canon(det, Y.rows.map(r => r.detail).filter(Boolean).concat(rep.lists.details)) : '') : '';
-    const hist = Y.rows.filter(r => N(r.client) === N(target) && N(r.dechet) === N(dech) && N(r.detail) === N(det) && r.cont);
+    const hist = Y.rows.filter(r => NC(r.client) === NC(target) && NC(r.dechet) === NC(dech) && NC(r.detail) === NC(det) && r.cont);
     // contenant : d'abord d'après le DAC (même nom, même volume), sinon le dernier utilisé pour ce client et ce déchet
     const nl = N(l.contenant), num = (nl.match(/\d+\s*L\b|\d+\s*M3/) || [''])[0].replace(/\s/g, '');
     const all = [...new Set(rep.lists.conts.concat(Y.rows.map(r => r.cont).filter(Boolean)))];
-    let cont = all.find(x => N(x) === nl)
+    let cont = all.find(x => NC(x) === NC(l.contenant))
       || (num && all.find(x => N(x).replace(/\s/g, '').includes(num) && /ROUL/.test(N(x)) === /ROUL/.test(nl)))
       || (num && all.find(x => N(x).replace(/\s/g, '').includes(num)))
       || (nl.length >= 3 && all.find(x => new RegExp('\\b' + nl + '\\b').test(N(x))))
