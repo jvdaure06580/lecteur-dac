@@ -127,7 +127,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <p class="msg" id="outMsg"></p>
   </section>
 
-  <p class="msg" id="version">Version du 25/11/2026 12:00</p>
+  <p class="msg" id="version">Version du 25/11/2026 14:30</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -602,7 +602,19 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
             const same = c.filter(r => NC(r.cont) === NC(l.contenant)); if (same.length === 1) c = same;
           }
         }
-        if (!c.length && dayRows.length && !(l.poidsKg > 0) && !(l.qte > 0)) {
+        if (c.length && type === 'clients') {
+          // plusieurs contenants pour le même déchet sur le DAC (ex. BAC 130L vide + BAC 240L) : chacun sur sa ligne
+          const freres = dac.lignes.filter(x => x !== l && NC(x.flux) !== '' && (fluxMap[N(target) + '|' + N(x.flux)] || fluxMap[N(x.flux)]) === fm);
+          if (freres.length) {
+            const vol = s => (N(s).replace(/\s/g, '').match(/\d+(?:L|M3)/) || [''])[0];
+            const ok = (rc, dc) => NC(rc) === NC(dc) || (vol(rc) && vol(rc) === vol(dc));
+            const compat = c.filter(r => ok(r.cont, l.contenant));
+            if (compat.length) c = compat;
+            else if (vol(l.contenant) && c.every(r => vol(r.cont) || freres.some(x => ok(r.cont, x.contenant)))) c = [];
+          }
+        }
+        const dejaVu = Y.rows.some(r => !r.virtual && NC(r.client) === NC(target) && NC(r.dechet) === NC(dech) && NC(r.detail) === NC(det) && r.poids !== '' && r.poids != null);
+        if (!c.length && dayRows.length && !(l.poidsKg > 0) && !(l.qte > 0) && !dejaVu) {
           // déchet non prévu ce jour-là et rien collecté : on n'ajoute pas de ligne vide au reporting
           ligne.status = 'ignore'; continue;
         }
@@ -700,6 +712,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       || (nl.length >= 3 && all.find(x => new RegExp('\\b' + nl + '\\b').test(N(x))))
       || (hist.length ? hist[hist.length - 1].cont : '')
       || l.contenant;
+    cont = String(cont).trim();
     const vkey = 'v|' + dac.date + '|' + N(target) + '|' + N(dech) + '|' + N(det) + '|' + N(cont);
     if (P.virtuels.has(vkey)) return P.virtuels.get(vkey);
     const prenom = String(dac.agent || '').split(/\s+/)[0] || '';
@@ -1010,7 +1023,10 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
           continue;
         }
         const batiment = / \/ /.test(String(a.dac.client)) ? String(a.dac.client).split(' / ').pop().trim() : '';
-        const bonTxt = isMU ? String(a.dac.client).trim() + '\n' + 'N°' + a.dac.bon : batiment ? batiment + '\n' + 'N°' + a.dac.bon : reg.targets.length > 1 ? a.site + '\n' + 'N°' + a.dac.bon : 'N°' + a.dac.bon;
+        // site collecté : nom du DAC quand il n'est pas celui du registre (client à plusieurs sites, ex. MONTJOYE CAGNES SUR MER AED)
+        const rs = String(a.dac.client).trim(), autreSite = reg.client && NC(rs) !== NC(reg.client) ? rs : '';
+        const site = batiment || (reg.targets.length > 1 ? a.site : '') || (corr.siteRegistre !== false && autreSite && similar(NC(rs), NC(reg.client)) < 0.85 ? autreSite : '');
+        const bonTxt = isMU ? rs + '\n' + 'N°' + a.dac.bon : site ? site + '\n' + 'N°' + a.dac.bon : 'N°' + a.dac.bon;
         // même texte que la liste déroulante du registre, s'il y en a une
         const dl = reg.lists.deroulante || [];
         if (dl.length) {
