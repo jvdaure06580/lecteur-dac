@@ -127,7 +127,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <p class="msg" id="outMsg"></p>
   </section>
 
-  <p class="msg" id="version">Version du 24/11/2026 16:20</p>
+  <p class="msg" id="version">Version du 25/11/2026 09:45</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -540,9 +540,13 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       // client
       let target = type === 'sncf' ? corr.sncfSites[N(dac.client)] : (corr.clients[siteKey(dac)] || corr.clients[N(dac.client)]);
       if (!target && type === 'clients') { const hit = Y.rows.find(r => N(r.client) === N(dac.client)); if (hit) target = hit.client; }
+      if (!target && type === 'clients') { // même nom sans espaces ni ponctuation (COOPER VISION = COOPERVISION)
+        const c = NC(dac.client), hits = c.length >= 4 ? [...new Set(optionsClients(rep, Y).filter(o => NC(o) === c))] : [];
+        if (hits.length === 1) target = hits[0]; }
       if (!target && type === 'clients' && /^UTILE\b/.test(N(dac.client))) { const mu = Y.rows.find(r => N(r.client) === 'MARCHE U'); if (mu) target = mu.client; }
       if (!target) { const opts0 = optionsClients(rep, Y), w0 = N(dac.client).split(' ')[0] || '';
-        const proches = w0.length >= 3 ? opts0.filter(o => N(o).startsWith(w0)) : [];
+        const c0 = NC(dac.client);
+        const proches = opts0.filter(o => (w0.length >= 3 && N(o).startsWith(w0)) || similar(NC(o), c0) >= 0.8).sort((a, b) => similar(NC(b), c0) - similar(NC(a), c0));
         P.issues.push({ kind: 'client', type, dac, msg: (type === 'sncf' ? 'Site SNCF inconnu : ' : 'Client inconnu : ') + dac.client + (dac.adresse ? ' (' + dac.adresse + ')' : ''), options: proches.concat(opts0.filter(o => !proches.includes(o))) }); continue; }
       const dayRows = Y.rows.filter(r => r.date === dac.date && N(r.client) === N(target));
       const gk = type + '|' + year + '|' + N(target) + '|' + dac.date;
@@ -697,6 +701,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     return v;
   }
   const fmtKg = v => v == null ? '?' : (Math.round(v * 10) / 10).toLocaleString('fr-FR') + ' kg';
+  function NC(s) { return N(s).replace(/[^A-Z0-9]/g, ''); }
   function optionsClients(rep, Y) {
     const set = new Set(rep.lists.clients.map(s => s.trim()));
     for (const r of Y.rows) set.add(String(r.client).trim());
@@ -939,7 +944,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       const saved = corr.registres[fk] || corr.registres[N(reg.client)];
       if (saved) ts = String(saved).split('||').filter(Boolean);
       const nc = N(reg.client);
-      if (!ts) { const t = targets.find(x => N(x) === nc); if (t) ts = [t]; }
+      if (!ts) { const t = targets.find(x => N(x) === nc) || targets.find(x => NC(x) === NC(reg.client)); if (t) ts = [t]; }
       if (!ts && /CAP SUD/.test(nc)) { const t = targets.find(x => N(x) === 'MARCHE U'); if (t) ts = [t]; }
       let proches = [];
       if (!ts && nc) {
