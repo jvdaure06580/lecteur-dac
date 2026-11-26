@@ -127,7 +127,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <p class="msg" id="outMsg"></p>
   </section>
 
-  <p class="msg" id="version">Version du 25/11/2026 14:30</p>
+  <p class="msg" id="version">Version du 25/11/2026 17:15</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -606,11 +606,12 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
           // plusieurs contenants pour le même déchet sur le DAC (ex. BAC 130L vide + BAC 240L) : chacun sur sa ligne
           const freres = dac.lignes.filter(x => x !== l && NC(x.flux) !== '' && (fluxMap[N(target) + '|' + N(x.flux)] || fluxMap[N(x.flux)]) === fm);
           if (freres.length) {
-            const vol = s => (N(s).replace(/\s/g, '').match(/\d+(?:L|M3)/) || [''])[0];
-            const ok = (rc, dc) => NC(rc) === NC(dc) || (vol(rc) && vol(rc) === vol(dc));
-            const compat = c.filter(r => ok(r.cont, l.contenant));
+            const vol = volOf;
+            const vl = x => vol(x.contenant) || vol(x.flux);
+            const ok = (rc, x) => NC(rc) === NC(x.contenant) || (vol(rc) && vol(rc) === vl(x));
+            const compat = c.filter(r => ok(r.cont, l));
             if (compat.length) c = compat;
-            else if (vol(l.contenant) && c.every(r => vol(r.cont) || freres.some(x => ok(r.cont, x.contenant)))) c = [];
+            else if (vl(l) && c.every(r => vol(r.cont) || freres.some(x => ok(r.cont, x)))) c = [];
           }
         }
         const dejaVu = Y.rows.some(r => !r.virtual && NC(r.client) === NC(target) && NC(r.dechet) === NC(dech) && NC(r.detail) === NC(det) && r.poids !== '' && r.poids != null);
@@ -703,14 +704,23 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     const dechC = canon(dech, Y.rows.map(r => r.dechet).filter(Boolean).concat(rep.lists.dechets));
     const detC = type === 'clients' ? (det ? canon(det, Y.rows.map(r => r.detail).filter(Boolean).concat(rep.lists.details)) : '') : '';
     const hist = Y.rows.filter(r => NC(r.client) === NC(target) && NC(r.dechet) === NC(dech) && NC(r.detail) === NC(det) && r.cont);
-    // contenant : d'abord d'après le DAC (même nom, même volume), sinon le dernier utilisé pour ce client et ce déchet
-    const nl = N(l.contenant), num = (nl.match(/\d+\s*L\b|\d+\s*M3/) || [''])[0].replace(/\s/g, '');
-    const all = [...new Set(rep.lists.conts.concat(Y.rows.map(r => r.cont).filter(Boolean)))];
-    let cont = all.find(x => NC(x) === NC(l.contenant))
-      || (num && all.find(x => N(x).replace(/\s/g, '').includes(num) && /ROUL/.test(N(x)) === /ROUL/.test(nl)))
-      || (num && all.find(x => N(x).replace(/\s/g, '').includes(num)))
+    // contenant : d'abord d'après le DAC (même nom, même volume) ; sans volume sur le DAC, le plus utilisé pour ce client et ce déchet
+    const nl = N(l.contenant), vol = volOf(l.contenant) || volOf(l.flux), mot = x => (N(x).split(' ')[0] || '').replace(/S$/, '');
+    const all = [...new Set(rep.lists.conts.concat(Y.rows.map(r => r.cont).filter(Boolean)).map(x => String(x).trim()).filter(Boolean))];
+    const plusFrequent = arr => { const n = {}; for (const x of arr) { const k = String(x).trim(); n[k] = (n[k] || 0) + 1; } return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || ''; };
+    const hc = hist.map(r => r.cont);
+    let cont = all.find(x => NC(x) === NC(l.contenant)) || '';
+    if (!cont && vol) {
+      const memeVol = all.filter(x => volOf(x) === vol);
+      cont = plusFrequent(hc.filter(x => volOf(x) === vol))
+        || memeVol.find(x => /ROUL/.test(N(x)) === /ROUL/.test(nl) && mot(x) === mot(l.contenant))
+        || memeVol.find(x => /ROUL/.test(N(x)) === /ROUL/.test(nl))
+        || memeVol[0]
+        || ((mot(l.contenant) || 'BAC') + ' ' + vol);
+    }
+    if (!cont) cont = plusFrequent(hc.filter(x => mot(x) === mot(l.contenant)))
       || (nl.length >= 3 && all.find(x => new RegExp('\\b' + nl + '\\b').test(N(x))))
-      || (hist.length ? hist[hist.length - 1].cont : '')
+      || plusFrequent(hc)
       || l.contenant;
     cont = String(cont).trim();
     const vkey = 'v|' + dac.date + '|' + N(target) + '|' + N(dech) + '|' + N(det) + '|' + N(cont);
@@ -722,6 +732,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     return v;
   }
   const fmtKg = v => v == null ? '?' : (Math.round(v * 10) / 10).toLocaleString('fr-FR') + ' kg';
+  function volOf(s) { const m = N(s).match(/(\d+(?:[.,]\d+)?)\s*(M3|L(?:ITRES?|TS?)?)(?![A-Z])/); return m ? m[1].replace(',', '.') + (m[2] === 'M3' ? 'M3' : 'L') : ''; }
   function NC(s) { return N(s).replace(/[^A-Z0-9]/g, ''); }
   function optionsClients(rep, Y) {
     const set = new Set(rep.lists.clients.map(s => s.trim()));
