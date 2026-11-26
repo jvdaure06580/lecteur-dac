@@ -137,7 +137,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <div id="rangeList"></div>
   </section>
 
-  <p class="msg" id="version">Version du 26/11/2026 17:00</p>
+  <p class="msg" id="version">Version du 26/11/2026 17:30</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -1651,8 +1651,9 @@ function renderRange() {
     const l = P.lignes.find(x => x.dac === dac && x.target); const target = l ? l.target : '';
     let c = null;
     if (target) { const reg = S.registres.find(r => (r.targets || []).some(t => C.N(t) === C.N(target))); const s = reg && regDuServeur(reg); if (s) c = s.client; else { const p = plan.find(x => x.kind === 'reg' && x.reg === reg); if (p && p.client) c = p.client; } }
+    if (!c && l && l.type === 'sncf') c = dossierClient(['SNCF']); // marché SNCF : tous les DAC dans le dossier SNCF
     if (!c) c = dossierClient([target, dac.client].filter(Boolean));
-    plan.push({ kind: 'dac', dac, target: target || dac.client, client: c, label: 'DAC N°' + dac.bon, dest: c ? c.name + '\\' + (sousDac(c) || 'DAC') + '\\' + dac.file : '', note: '' });
+    plan.push({ kind: 'dac', dac, target: target || dac.client, client: c, label: 'DAC N°' + dac.bon, dest: c ? c.name + '\\' + (sousDac(c) || 'DAC') + ' (puis année, mois et site si ces dossiers existent)' : '', note: '' });
   }
   FS.plan = plan;
   const opts = '<option value="">Choisir le dossier du client…</option>' + FS.index.clients.map(c => c.name).sort((a, b) => a.localeCompare(b)).map(n => '<option>' + esc(n) + '</option>').join('');
@@ -1667,6 +1668,35 @@ async function dossierDac(c) {
   const d = dirs.find(x => C.N(x.name) === 'DAC') || dirs.find(x => /\bDACS?\b/.test(C.N(x.name)));
   if (d) return d; return { name: 'DAC', h: await c.h.getDirectoryHandle('DAC', { create: true }) };
 }
+const MOIS_FR = ['JANVIER', 'FÉVRIER', 'MARS', 'AVRIL', 'MAI', 'JUIN', 'JUILLET', 'AOÛT', 'SEPTEMBRE', 'OCTOBRE', 'NOVEMBRE', 'DÉCEMBRE'];
+async function sousDossiers(h) { const out = []; for await (const [name, x] of h.entries()) if (x.kind === 'directory') out.push({ name, h: x }); return out; }
+// Bons Collectes & DAC \ 2026 \ 11 NOVEMBRE \ <dossier du site> (si ces niveaux existent chez le client)
+async function cheminDac(base, dac, noms) {
+  let cur = base, chemin = [base.name];
+  const an = (dac.date || '').slice(0, 4), m = +(dac.date || '').slice(5, 7);
+  let dirs = await sousDossiers(cur.h);
+  const parAn = dirs.filter(d => /^20\d\d$/.test(d.name.trim()));
+  if (an && parAn.length) {
+    cur = dirs.find(d => d.name.trim() === an) || { name: an, h: await cur.h.getDirectoryHandle(an, { create: true }) }; chemin.push(cur.name);
+    dirs = await sousDossiers(cur.h);
+    if (m) {
+      let parSite = false; // les autres mois sont-ils rangés par site ?
+      for (const d of dirs) { if ((await sousDossiers(d.h)).length) { parSite = true; break; } }
+      const mm = C.N(MOIS_FR[m - 1]);
+      const moisD = dirs.find(d => { const n = C.N(d.name); return new RegExp('^0?' + m + '\\b').test(n) || n.includes(mm); });
+      cur = moisD || { name: m + ' ' + MOIS_FR[m - 1], h: await cur.h.getDirectoryHandle(m + ' ' + MOIS_FR[m - 1], { create: true }) }; chemin.push(cur.name);
+      dirs = await sousDossiers(cur.h);
+      if (dirs.length || parSite) { // un dossier par site : on cherche celui du DAC
+        const mots = x => C.N(String(x).replace(/\./g, '')).replace(/[\d\-]+\s*$/, '').split(/[^A-Z0-9]+/).filter(w => w.length > 1);
+        let best = null, score = 0;
+        for (const d of dirs) { const dw = mots(d.name); for (const nm of noms) { const nw = mots(nm); if (nw.length && nw.every(w => dw.includes(w)) && nw.length > score) { best = d; score = nw.length; } } }
+        if (!best) { const nom = String(noms[0] || dac.client).replace(/[\\/:*?"<>|]+/g, ' ').trim(); best = { name: nom, h: await cur.h.getDirectoryHandle(nom, { create: true }) }; }
+        cur = best; chemin.push(cur.name);
+      }
+    }
+  }
+  return { h: cur.h, chemin: chemin.join('\\') };
+}
 async function ecrire(dir, name, data) { const fh = await dir.getFileHandle(name, { create: true }); const w = await fh.createWritable(); await w.write(data); await w.close(); }
 async function existe(dir, name) { try { await dir.getFileHandle(name); return true; } catch (e) { return false; } }
 $('btnRanger').addEventListener('click', async () => {
@@ -1676,9 +1706,9 @@ $('btnRanger').addEventListener('click', async () => {
     cell.textContent = '…';
     try {
       if (p.kind === 'dac') {
-        const d = await dossierDac(p.client);
-        if (await existe(d.h, p.dac.file)) { cell.textContent = 'déjà rangé dans ' + d.name; ok++; continue; }
-        await ecrire(d.h, p.dac.file, p.dac.src); cell.textContent = '✓ rangé dans ' + d.name; ok++;
+        const d = await cheminDac(await dossierDac(p.client), p.dac, [p.target, p.dac.client].filter(Boolean));
+        if (await existe(d.h, p.dac.file)) { cell.textContent = 'déjà rangé dans ' + d.chemin; ok++; continue; }
+        await ecrire(d.h, p.dac.file, p.dac.src); cell.textContent = '✓ rangé dans ' + d.chemin; ok++;
       } else {
         const bk = S.R.parReg.get(p.reg); const out = await C.buildRegistre(JSZip, p.reg, bk.lignes);
         let dir = p.dir;
