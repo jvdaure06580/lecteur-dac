@@ -82,6 +82,7 @@ details{margin-top:8px}summary{cursor:pointer;font-weight:600;min-height:44px;di
 @media(max-width:600px){.drop{grid-template-columns:1fr;text-align:center}.drop svg{margin:auto}.issue{grid-template-columns:1fr}
 table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px}.stack td{display:flow-root;border:0;padding:3px 10px;padding-inline-start:8.5em;text-align:start}.stack td::before{content:attr(data-l);float:inline-start;width:7.5em;margin-inline-start:-8em;color:var(--mute)}.stack td:empty{display:none}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+.issue.pon .ponf{display:grid;gap:6px;margin-top:8px}.issue.pon .ponf input[type=text]{padding:6px 8px;border:1px solid var(--line,#ccc);border-radius:6px;font:inherit;min-width:260px}.issue.pon label{font-size:14px}
 </style>
 <script>new MutationObserver(()=>{for(const c of document.querySelectorAll('.stack td:not([data-l])')){let i=0,p=c;while(p=p.previousElementSibling)i+=p.colSpan;c.dataset.l=c.closest('table').rows[0].cells[i]?.textContent||''}}).observe(document,{childList:true,subtree:true})</script>
 </head>
@@ -127,7 +128,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <p class="msg" id="outMsg"></p>
   </section>
 
-  <p class="msg" id="version">Version du 25/11/2026 17:15</p>
+  <p class="msg" id="version">Version du 26/11/2026 11:45</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -527,7 +528,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
 
   // dacs : liste des DAC lus ; reports : {clients, sncf} ; opts : {zeros:bool, ecraser:bool}
   async function plan(dacs, reports, corr, opts) {
-    const P = { assign: new Map(), issues: [], infos: [], lignes: [], vides: [], groupes: [], ajoutJour: [], virtuels: new Map(), taken: new Map() }; // assign: key(type|year|row) -> {...}
+    const P = { ponctuels: new Map(), assign: new Map(), issues: [], infos: [], lignes: [], vides: [], groupes: [], ajoutJour: [], virtuels: new Map(), taken: new Map() }; // assign: key(type|year|row) -> {...}
     const groups = new Map(); // type|year|client|date -> {rows, dacs}
     for (const dac of dacs) {
       if (dac.erreurs.length && (!dac.client || !dac.date || !dac.lignes.length)) { P.issues.push({ kind: 'dac', dac, msg: dac.erreurs.join(' · ') }); continue; }
@@ -539,6 +540,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       if (!Y) { P.issues.push({ kind: 'fichier', dac, msg: 'Pas d\'onglet ' + year + ' dans ' + rep.fileName }); continue; }
       // client
       let target = type === 'sncf' ? corr.sncfSites[N(dac.client)] : (corr.clients[siteKey(dac)] || corr.clients[N(dac.client)]);
+      if (target && String(target).startsWith('§P§')) { target = String(target).slice(3).trim(); if (!P.ponctuels.has(target)) P.ponctuels.set(target, dac); }
       if (!target && type === 'clients') { const hit = Y.rows.find(r => NC(r.client) === NC(dac.client)); if (hit) target = hit.client; }
       if (!target && type === 'clients') { // même nom sans espaces ni ponctuation (COOPER VISION = COOPERVISION)
         const c = NC(dac.client), hits = c.length >= 4 ? [...new Set(optionsClients(rep, Y).filter(o => NC(o) === c))] : [];
@@ -555,7 +557,9 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       if (!target) { const opts0 = optionsClients(rep, Y), w0 = N(dac.client).split(' ')[0] || '';
         const c0 = NC(dac.client);
         const proches = opts0.filter(o => (w0.length >= 3 && N(o).startsWith(w0)) || similar(NC(o), c0) >= 0.8).sort((a, b) => similar(NC(b), c0) - similar(NC(a), c0));
-        P.issues.push({ kind: 'client', type, dac, msg: (type === 'sncf' ? 'Site SNCF inconnu : ' : 'Client inconnu : ') + dac.client + (dac.adresse ? ' (' + dac.adresse + ')' : ''), options: proches.concat(opts0.filter(o => !proches.includes(o))) }); continue; }
+        const opts1 = proches.concat(opts0.filter(o => !proches.includes(o))).map(o => ({ value: o, label: (type === 'sncf' ? '' : 'Rattacher à : ') + o }));
+        if (type === 'clients') opts1.unshift({ value: '§P§' + String(dac.client).trim(), label: '➕ Client ponctuel (nouveau client) : ' + String(dac.client).trim() });
+        P.issues.push({ kind: 'client', type, dac, msg: (type === 'sncf' ? 'Site SNCF inconnu : ' : 'Client absent du reporting : ') + dac.client + (dac.adresse ? ' (' + dac.adresse + ')' : '') + (type === 'sncf' ? '' : '. Client ponctuel ou client déjà existant ?'), options: opts1 }); continue; }
       const dayRows = Y.rows.filter(r => r.date === dac.date && NC(r.client) === NC(target));
       const gk = type + '|' + year + '|' + N(target) + '|' + dac.date;
       if (!groups.has(gk)) groups.set(gk, { type, year, rows: dayRows, dacs: [], target, date: dac.date });
@@ -719,6 +723,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         || ((mot(l.contenant) || 'BAC') + ' ' + vol);
     }
     if (!cont) cont = plusFrequent(hc.filter(x => mot(x) === mot(l.contenant)))
+      || all.find(x => NC(x) === mot(l.contenant))
       || (nl.length >= 3 && all.find(x => new RegExp('\\b' + nl + '\\b').test(N(x))))
       || plusFrequent(hc)
       || l.contenant;
@@ -890,7 +895,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     'BIO DECHETS|': 'BIODECHET', 'BOIS|': 'BOIS', 'DEEE|': 'DEEE', 'FERRAILLES|': 'FERRAILLE', 'AMPOULES|': 'AMPOULE', 'NEONS|': 'NEON', 'PILES|': 'PILE',
     'EMBALLAGES RECYCLABLES|': 'EMBALLAGE RECYCLABLE', 'ORDURES MENAGERES|': 'ORDURE MENAGERE', 'ORDURES MENAGERES|MEGOTS': 'ORDURE MENAGERE', 'MOBILIERS|': 'MOBILIER', 'VETEMENTS|': 'VETEMENT', 'CARTOUCHES|': 'ENCRE TONNER'
   };
-  DEFAULTS.regTypes = REG_TYPES; DEFAULTS.registres = {}; DEFAULTS.exutoires = {};
+  DEFAULTS.regTypes = REG_TYPES; DEFAULTS.registres = {}; DEFAULTS.exutoires = {}; DEFAULTS.ponctuels = {};
 
   const CODE_UE = { 'ALUMINIUM': '17.04.02', 'ALUMINIUM CANETTE': '17.04.02', 'BATTERIE SANS PLOMB': '16.06.02*', 'BIODECHET': '20.01.08', 'BOIS': '17.02.01', 'CARTON': '15.01.01', 'DEEE': '16.02.09*', 'EMBALLAGE RECYCLABLE': '15.01.06', 'ENCOMBRANT': '20.01.21', 'ENCRE TONNER': '08.03.18', 'FERRAILLE': '19.12.02', 'MOBILIER': '20.03.07', 'NEON': '20.01.21*', 'PAPIER': '20.01.01', 'PILE': '16.01.01*', 'PLASTIQUE': '15.01.02', 'VERRE': '15.01.07', 'VETEMENT': '20.01.10', 'ARCHIVE': '20.01.01', 'DIB': '/', 'CAPSULE CAFE': '/', 'EMBALLAGE PLASTIQUE': '15.01.02', 'ORDURE MENAGERE': '/', 'PAPIER CONFIDENTIEL': '20.01.01', 'AMPOULE': '20.01.21*' };
   const TRAIT = { 'PAPIER': 'R.3', 'CARTON': 'R.3', 'BOIS': 'R.3', 'BIODECHET': 'R.3', 'ALUMINIUM CANETTE': 'R.4', 'PILE': 'R.1', 'CAPSULE CAFE': '/', 'DEEE': 'R.5', 'DIB': '/', 'EMBALLAGE PLASTIQUE': 'R.3', 'EMBALLAGE RECYCLABLE': 'R.3', 'ENCRE TONNER': 'R.5', 'FERRAILLE': 'R.4', 'MOBILIER': 'R.3', 'PLASTIQUE': 'R.3', 'VERRE': 'R.3', 'ORDURE MENAGERE': '/', 'PAPIER CONFIDENTIEL': 'R.3', 'AMPOULE': 'R.5', 'NEON': 'R.5', 'VETEMENT': 'R.3' };
@@ -1146,6 +1151,103 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     const data = await wb.zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 }, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     return { name: reg.fileName, data, lignes: lignes.length, ajout: Math.max(0, need) };
   }
+  // ----- nouveau registre (client ponctuel) à partir du registre d'un autre client, même mise en page -----
+  function adjRangeDel(ref, a, b) {
+    const n = b - a + 1;
+    const one = p => {
+      const m = /^(\$?[A-Z]{1,3})?(\$?)(\d+)(?::(\$?[A-Z]{1,3})?(\$?)(\d+))?$/.exec(p);
+      if (!m) return p;
+      let r1 = +m[3], r2 = m[6] ? +m[6] : r1; const range = m[6] != null;
+      if (r1 >= a && r2 <= b) return null;
+      const f = r => r >= 1048576 ? r : r > b ? r - n : r;
+      r1 = r1 >= a && r1 <= b ? a : f(r1);
+      r2 = r2 >= a && r2 <= b ? a - 1 : f(r2);
+      return (m[1] || '') + m[2] + r1 + (range ? ':' + (m[4] || '') + m[5] + r2 : '');
+    };
+    const parts = String(ref).split(' ').map(one).filter(Boolean);
+    return parts.length ? parts.join(' ') : null;
+  }
+  // « 48 Avenue du Roi Robert · NICE 06100 » -> { ligne1: '48 Avenue du Roi Robert', ligne2: '06100 NICE' }
+  function adresseDac(adr) {
+    const parts = String(adr || '').split(/\s*·\s*/).map(x => x.trim()).filter(Boolean);
+    let ville = parts.length > 1 ? parts.pop() : '';
+    let m = /^(.*?)[\s,]*(\d{5})$/.exec(ville);
+    if (m && m[1]) ville = m[2] + ' ' + m[1].toUpperCase();
+    return { ligne1: parts.join(' '), ligne2: ville };
+  }
+  async function nouveauRegistre(JSZip, reg, info) {
+    const wb = await openXlsx(JSZip, reg.buf.slice ? reg.buf.slice(0) : reg.buf), sh = wb.sheets.find(x => x.name === reg.sheet);
+    let xml = await sheetXml(wb, reg.sheet);
+    const rowRe = /<row r="(\d+)"([^>]*?)(\/>|>([\s\S]*?)<\/row>)/g;
+    const tEnd = reg.table ? reg.table.end : Math.max(...reg.rows.map(r => r.r));
+    const filled = reg.rows.filter(r => r.r <= tEnd && r[reg.map.type] != null && String(r[reg.map.type]).trim() !== '').map(r => r.r);
+    const first = reg.head + 1, last = filled.length ? Math.max(...filled) : first;
+    // 1re ligne du tableau vidée (formules et mise en page gardées)
+    const vider = [reg.map.type, reg.map.date, reg.map.bon, reg.map.exu, reg.map.poids].filter(Boolean);
+    xml = xml.replace(new RegExp('<row r="' + first + '"[^>]*>[\\s\\S]*?<\\/row>'), row => {
+      for (const col of vider) row = row.replace(new RegExp('<c r="' + col + first + '"([^>]*?)(?:\\/>|>[\\s\\S]*?<\\/c>)'), (all, at) => '<c r="' + col + first + '"' + at.replace(/\s*\bt="[^"]*"/, '') + '/>');
+      for (const col of [reg.map.code, reg.map.trait].filter(Boolean)) row = row.replace(new RegExp('(<c r="' + col + first + '"[^>]*>\\s*<f[^>]*>[\\s\\S]*?<\\/f>)\\s*<v>[\\s\\S]*?<\\/v>'), '$1');
+      return row;
+    });
+    // les autres lignes de collecte sont supprimées
+    const a = first + 1, b = last;
+    if (b >= a) {
+      const n = b - a + 1;
+      const decale = r => r > b ? r - n : r >= a ? a - 1 : r;
+      xml = xml.replace(rowRe, (all, rs) => { const r = +rs; if (r >= a && r <= b) return ''; if (r > b) return all.replace(/<row r="\d+"/, '<row r="' + (r - n) + '"').replace(/(<c r="[A-Z]+)(\d+)"/g, (x, c, k) => c + (+k - n) + '"'); return all; });
+      xml = xml.replace(/<f\b([^>]*)>([^<]*)<\/f>/g, (all, at, f) => '<f' + at.replace(/\bref="([^"]+)"/, (x, r) => 'ref="' + (adjRangeDel(r, a, b) || r) + '"') + '>' + shiftRef(f, b + 1, -n) + '</f>');
+      xml = xml.replace(/<mergeCell ref="([^"]+)"\s*\/>/g, (all, r) => { const v = adjRangeDel(r, a, b); return v && /:/.test(v) && v.split(':')[0] !== v.split(':')[1] ? '<mergeCell ref="' + v + '"/>' : ''; });
+      xml = xml.replace(/<conditionalFormatting\b[^>]*\bsqref="([^"]+)"[^>]*>[\s\S]*?<\/conditionalFormatting>/g, (all, r) => { const v = adjRangeDel(r, a, b); return v ? all.replace('sqref="' + r + '"', 'sqref="' + v + '"') : ''; });
+      xml = xml.replace(/<dataValidation\b[^>]*\bsqref="([^"]+)"[^>]*(?:\/>|>[\s\S]*?<\/dataValidation>)/g, (all, r) => { const v = adjRangeDel(r, a, b); return v ? all.replace('sqref="' + r + '"', 'sqref="' + v + '"') : ''; });
+      xml = xml.replace(/<x14:(conditionalFormatting|dataValidation)\b(?:(?!<\/x14:\1>)[\s\S])*?<xm:sqref>([^<]+)<\/xm:sqref>[\s\S]*?<\/x14:\1>/g, (all, t, r) => { const v = adjRangeDel(r, a, b); return v ? all.replace('<xm:sqref>' + r + '</xm:sqref>', '<xm:sqref>' + v + '</xm:sqref>') : ''; });
+      xml = xml.replace(/(<(?:dimension|autoFilter|hyperlink)\b[^>]*\bref=")([^"]+)"/g, (all, p, r) => p + (adjRangeDel(r, a, b) || r) + '"');
+      xml = xml.replace(/<brk id="(\d+)"([^>]*)\/>/g, (all, id, rest) => { const r = +id; return r >= a && r <= b ? '' : '<brk id="' + (r > b ? r - n : r) + '"' + rest + '/>'; });
+      const cnt = (tag, inner) => { xml = xml.replace(new RegExp('<' + tag + '\\b([^>]*?)\\bcount="\\d+"([^>]*)>([\\s\\S]*?)<\\/' + tag + '>'), (all, p1, p2, body) => '<' + tag + p1 + 'count="' + (body.match(new RegExp('<' + inner + '\\b', 'g')) || []).length + '"' + p2 + '>' + body + '</' + tag + '>'); };
+      cnt('mergeCells', 'mergeCell'); cnt('dataValidations', 'dataValidation'); cnt('x14:dataValidations', 'x14:dataValidation'); cnt('rowBreaks', 'brk');
+      xml = xml.replace(/<mergeCells count="0"\s*>\s*<\/mergeCells>/, '').replace(/<dataValidations count="0"\s*>\s*<\/dataValidations>/, '');
+      if (reg.table) {
+        const tx = (await wb.zip.file(reg.table.path).async('string')).replace(/(\bref=")([^"]+)"/g, (all, p, r) => p + (adjRangeDel(r, a, b) || r) + '"');
+        put(wb.zip, reg.table.path, tx);
+      }
+      // images placées sous le tableau
+      const relPath = sh.path.replace(/worksheets\/([^/]+)$/, 'worksheets/_rels/$1.rels'), rf = wb.zip.file(relPath);
+      if (rf) for (const m of (await rf.async('string')).matchAll(/Target="([^"]*drawings\/[^"]+)"/g)) {
+        const dp = 'xl/' + m[1].replace(/^(\.\.\/)+/, ''); const df = wb.zip.file(dp); if (!df) continue;
+        put(wb.zip, dp, (await df.async('string')).replace(/<xdr:row>(\d+)<\/xdr:row>/g, (all, k) => '<xdr:row>' + (decale(+k + 1) - 1) + '</xdr:row>'));
+      }
+      // zones d'impression et noms définis de cette feuille
+      let wbx = await wb.zip.file('xl/workbook.xml').async('string');
+      const shn = reg.sheet.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      wbx = wbx.replace(new RegExp("((?:'" + shn + "'|" + shn + ")!)(\\$?[A-Z]{1,3}\\$?\\d+(?::\\$?[A-Z]{1,3}\\$?\\d+)?)", 'g'), (all, p, r) => p + r.replace(/(\$?)(\d+)/g, (x, d, k) => d + decale(+k)));
+      put(wb.zip, 'xl/workbook.xml', wbx);
+    }
+    // en-tête : nom du client, adresse, responsable, année
+    const top = readRows(xml, wb.sst, LETTERS, 1, reg.head);
+    const edits = new Map(); const set = (r, c, v) => { if (!c || !r) return; const e = edits.get(r) || {}; e[c] = v; edits.set(r, e); };
+    const find = test => { for (const r of top) for (const k of Object.keys(r)) if (k !== 'r' && test(N(r[k]))) return { r: r.r, c: k, v: r[k] }; return null; };
+    const lc = find(v => v === 'NOM DU CLIENT'), la = find(v => v === 'ADRESSE'), lr = find(v => /RESPONSABLE/.test(v)), lt = find(v => /REGISTRE DES DECHETS/.test(v));
+    if (lc) set(lc.r + 1, lc.c, info.client);
+    if (la) { set(la.r + 1, la.c, info.ligne1 || ''); set(la.r + 2, la.c, info.ligne2 || ''); }
+    if (lr) set(lr.r + 1, lr.c, info.responsable || '');
+    if (lt && info.annee) set(lt.r, lt.c, String(lt.v).replace(/20\d\d/, info.annee));
+    xml = applyEdits(xml, edits);
+    xml = xml.replace(/<selection [^>]*\/>/g, '');
+    put(wb.zip, sh.path, xml);
+    let wbx = await wb.zip.file('xl/workbook.xml').async('string');
+    wbx = /<calcPr\b[^>]*fullCalcOnLoad/.test(wbx) ? wbx : wbx.replace(/<calcPr\b/, '<calcPr fullCalcOnLoad="1"');
+    put(wb.zip, 'xl/workbook.xml', wbx);
+    if (wb.zip.file('xl/calcChain.xml')) {
+      wb.zip.remove('xl/calcChain.xml');
+      const ct = await wb.zip.file('[Content_Types].xml').async('string');
+      put(wb.zip, '[Content_Types].xml', ct.replace(/<Override[^>]*calcChain[^>]*\/>/, ''));
+      const rl = await wb.zip.file('xl/_rels/workbook.xml.rels').async('string');
+      put(wb.zip, 'xl/_rels/workbook.xml.rels', rl.replace(/<Relationship[^>]*calcChain[^>]*\/>/, ''));
+    }
+    await finalize(wb, [sh.path]);
+    const data = await wb.zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 }, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const nom = String(info.client).replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return { name: 'REGISTRE DECHETS ANNUEL ' + nom + (info.annee ? ' ' + info.annee : '') + '.xlsx', data };
+  }
   function extendRef(sq, ins, m) {
     return sq.split(' ').map(part => {
       const mm = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(part);
@@ -1155,7 +1257,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
   }
   const isoToSerial = iso => Math.round((Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) - Date.UTC(1899, 11, 30)) / 864e5);
 
-  const api = { N, parseDac, toLines, openXlsx, readRows, applyEdits, analyseReport, reportRows, plan, buildOutputs, mergeCorr, DEFAULTS, isoToFr, fmtKg, contKey, siteKey, analyseRegistre, planRegistres, buildRegistre };
+  const api = { N, parseDac, toLines, openXlsx, readRows, applyEdits, analyseReport, reportRows, plan, buildOutputs, mergeCorr, DEFAULTS, isoToFr, fmtKg, contKey, siteKey, analyseRegistre, planRegistres, buildRegistre, nouveauRegistre, adresseDac };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.DacCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);
 
@@ -1166,7 +1268,7 @@ const C = window.DacCore;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const S = { dacs: [], reports: { clients: null, sncf: null }, files: [], saved: {}, corr: C.mergeCorr({}), plan: null, db: null, bons: {}, registres: [], R: null };
-const TYPES = { clients: 'Client', sncfSites: 'Site SNCF', flux: 'Déchet', sncfFlux: 'Déchet SNCF', cont: 'Contenant', sncfCont: 'Contenant SNCF', registres: 'Registre', exutoires: 'Exutoire final', regTypes: 'Type au registre' };
+const TYPES = { clients: 'Client', sncfSites: 'Site SNCF', flux: 'Déchet', sncfFlux: 'Déchet SNCF', cont: 'Contenant', sncfCont: 'Contenant SNCF', registres: 'Registre', exutoires: 'Exutoire final', regTypes: 'Type au registre', ponctuels: 'Client ponctuel sans registre' };
 
 /* ---- correspondances : stockage ---- */
 async function loadCorr() {
@@ -1187,7 +1289,7 @@ function setCorr(kind, key, val) { S.saved[kind] = S.saved[kind] || {}; S.saved[
 function renderCorr() {
   const rows = [];
   for (const k of Object.keys(TYPES)) for (const [a, b] of Object.entries(S.saved[k] || {}))
-    rows.push('<tr><td>' + TYPES[k] + '</td><td>' + esc(a.replace(/^(site|reg):/, '').replace('#', ' — ').replace(/\|/g, ' · ')) + '</td><td>' + esc(String(b).replace(/\|\|/g, ' + ').replace('§', ' · ').replace(/\|$/, '').replace('|', ' / ')) + '</td><td><button class="ghost small" data-del="' + esc(k) + '" data-key="' + esc(a) + '">Supprimer</button></td></tr>');
+    rows.push('<tr><td>' + TYPES[k] + '</td><td>' + esc(a.replace(/^(site|reg):/, '').replace('#', ' — ').replace(/\|/g, ' · ')) + '</td><td>' + esc(String(b).replace(/^§P§/, 'Client ponctuel : ').replace(/\|\|/g, ' + ').replace('§', ' · ').replace(/\|$/, '').replace('|', ' / ')) + '</td><td><button class="ghost small" data-del="' + esc(k) + '" data-key="' + esc(a) + '">Supprimer</button></td></tr>');
   $('corrBody').innerHTML = rows.join('') || '<tr><td colspan="4">Aucune pour l\'instant : les correspondances de base (cartons, DIB, canettes, gares SNCF…) sont déjà intégrées.</td></tr>';
 }
 $('corrBody').addEventListener('click', e => { const b = e.target.closest('[data-del]'); if (!b) return; delete S.saved[b.dataset.del][b.dataset.key]; saveCorr(); if (S.plan) run(); });
@@ -1321,7 +1423,23 @@ function render() {
   for (const t of P.infos) iss.push('<div class="issue info"><div>' + esc(t) + '</div></div>');
   const vides = P.vides.filter(v => v.type === 'clients');
   if (vides.length) iss.push('<div class="issue info"><div><b>' + vides.length + ' ligne(s) prévue(s) sans donnée dans les DAC</b><div class="src">' + vides.map(v => esc(v.row.client) + ' · ' + esc(v.row.dechet) + (v.row.detail ? ' ' + esc(v.row.detail) : '') + ' (ligne ' + v.row.r + ')').join(' — ') + '</div><div class="src">Coche « Mettre 0… » si ces bacs n\'ont pas été collectés.</div></div></div>');
+  // clients ponctuels : création du registre
+  S.ponct = [];
+  for (const [target, dac] of P.ponctuels || []) {
+    const nt = C.N(target);
+    if ((S.saved.ponctuels || {})[nt] === 'aucun') continue;
+    if (S.registres.some(r => C.N(r.client) === nt || (r.targets || []).some(t => C.N(t) === nt))) continue;
+    const n = S.ponct.length; S.ponct.push({ target, dac });
+    const ad = C.adresseDac(dac.adresse);
+    iss.unshift('<div class="issue pon" data-pn="' + n + '"><div style="flex:1"><b>Nouveau client ponctuel « ' + esc(target) + ' » : faut-il créer son registre ?</b><div class="src">DAC N°' + esc(dac.bon) + ' · ' + C.isoToFr(dac.date) + '</div>' +
+      '<div class="ponf"><label><input type="radio" name="padr' + n + '" value="dac" checked> Garder l\'adresse du DAC : <b>' + esc(ad.ligne1) + ' — ' + esc(ad.ligne2) + '</b></label>' +
+      '<label><input type="radio" name="padr' + n + '" value="autre"> Autre adresse :</label>' +
+      '<input type="text" data-pa1="' + n + '" placeholder="Adresse (ex. 12 rue de la Paix)" value="' + esc(ad.ligne1) + '"><input type="text" data-pa2="' + n + '" placeholder="Code postal et ville (ex. 06130 GRASSE)" value="' + esc(ad.ligne2) + '">' +
+      '<label>Nom du responsable : <input type="text" data-presp="' + n + '" placeholder="ex. Mme Marie DUPONT"></label></div></div>' +
+      '<div class="act"><button class="small" type="button" data-pcreer="' + n + '">Créer le registre</button><button class="small ghost" type="button" data-psans="' + n + '">Pas de registre</button></div></div>');
+  }
   $('issues').innerHTML = iss.join('');
+  if (S.ponct.length) { const k = $('kpis').querySelectorAll('.k')[2]; if (k) { k.classList.add('warn'); k.querySelector('em').textContent = todo + S.ponct.length; } }
   // détail par DAC
   const byDac = new Map(); for (const l of P.lignes) { if (!byDac.has(l.dac)) byDac.set(l.dac, []); byDac.get(l.dac).push(l); }
   const findA = l => A.find(a => a.sources.includes(l));
@@ -1386,6 +1504,34 @@ $('issues').addEventListener('click', async e => {
   else if (i.kind === 'exutoire') { const dn = C.N(i.dest ? i.dest.nom : ''); setCorr('exutoires', dn + '|' + C.N(i.type), v); }
   else if (i.kind === 'choix') { if (i.type === 'sncf') setCorr('sncfCont', C.N(i.target) + '|' + C.N(i.l.contenant), v.split('§')[0]); else setCorr('cont', C.siteKey(i.dac) + '|' + C.N(i.l.flux) + '|' + C.N(i.l.contenant), v); }
   await run();
+});
+$('issues').addEventListener('input', e => { const t = e.target.closest('[data-pa1],[data-pa2]'); if (!t) return; const n = t.dataset.pa1 || t.dataset.pa2; const r = $('issues').querySelector('input[name="padr' + n + '"][value="autre"]'); if (r) r.checked = true; });
+async function modeleRegistre() {
+  const m = S.registres.find(r => !r.nouveau);
+  if (m) return m;
+  try { const r = await fetch('modele_registre.xlsx', { cache: 'no-store' }); if (r.ok) { const buf = await r.arrayBuffer(); const reg = await C.analyseRegistre(JSZip, buf, 'modele_registre.xlsx'); if (reg) return reg; } } catch (e) {}
+  return null;
+}
+$('issues').addEventListener('click', async e => {
+  const bs = e.target.closest('[data-psans]');
+  if (bs) { const p = S.ponct[+bs.dataset.psans]; setCorr('ponctuels', C.N(p.target), 'aucun'); render(); return; }
+  const bc = e.target.closest('[data-pcreer]'); if (!bc) return;
+  const n = bc.dataset.pcreer, p = S.ponct[+n], box = bc.closest('.issue');
+  const autre = box.querySelector('input[name="padr' + n + '"][value="autre"]').checked, ad = C.adresseDac(p.dac.adresse);
+  const ligne1 = autre ? box.querySelector('[data-pa1]').value.trim() : ad.ligne1, ligne2 = autre ? box.querySelector('[data-pa2]').value.trim() : ad.ligne2;
+  const responsable = box.querySelector('[data-presp]').value.trim();
+  if (!responsable) { box.querySelector('[data-presp]').focus(); $('loadMsg').textContent = 'Indique le nom du responsable pour le registre.'; $('loadMsg').classList.add('err'); return; }
+  const modele = await modeleRegistre();
+  if (!modele) { $('loadMsg').textContent = 'Pour créer le registre, dépose aussi le registre d\'un autre client : il sert de modèle pour la mise en page (il n\'est pas modifié).'; $('loadMsg').classList.add('err'); return; }
+  bc.disabled = true;
+  try {
+    const out = await C.nouveauRegistre(JSZip, modele, { client: p.target, ligne1, ligne2, responsable, annee: (p.dac.date || '').slice(0, 4) });
+    const reg = await C.analyseRegistre(JSZip, out.data, out.name); reg.nouveau = true;
+    S.registres.push(reg);
+    S.files.push({ name: out.name, kind: 'Registre créé (client ponctuel)', state: p.target + ' · ' + (ligne1 + ' ' + ligne2).trim() + ' · ' + responsable, ok: true, reg });
+    renderFiles(); $('loadMsg').textContent = ''; $('loadMsg').classList.remove('err');
+    await run();
+  } catch (err) { $('loadMsg').textContent = 'Création du registre impossible : ' + ((err && err.message) || err); $('loadMsg').classList.add('err'); bc.disabled = false; }
 });
 $('outBtns').addEventListener('click', async e => {
   const rb = e.target.closest('[data-reg]');
