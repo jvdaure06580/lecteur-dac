@@ -128,7 +128,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <p class="msg" id="outMsg"></p>
   </section>
 
-  <p class="msg" id="version">Version du 26/11/2026 16:00</p>
+  <p class="msg" id="version">Version du 26/11/2026 16:15</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -895,7 +895,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     'BIO DECHETS|': 'BIODECHET', 'BOIS|': 'BOIS', 'DEEE|': 'DEEE', 'FERRAILLES|': 'FERRAILLE', 'AMPOULES|': 'AMPOULE', 'NEONS|': 'NEON', 'PILES|': 'PILE',
     'EMBALLAGES RECYCLABLES|': 'EMBALLAGE RECYCLABLE', 'ORDURES MENAGERES|': 'ORDURE MENAGERE', 'ORDURES MENAGERES|MEGOTS': 'ORDURE MENAGERE', 'MOBILIERS|': 'MOBILIER', 'VETEMENTS|': 'VETEMENT', 'CARTOUCHES|': 'ENCRE TONNER'
   };
-  DEFAULTS.regTypes = REG_TYPES; DEFAULTS.registres = {}; DEFAULTS.exutoires = {}; DEFAULTS.ponctuels = {}; DEFAULTS.registre0kg = { 'CASINO BARRIERE': true };
+  DEFAULTS.regTypes = REG_TYPES; DEFAULTS.registres = {}; DEFAULTS.exutoires = {}; DEFAULTS.ponctuels = {}; DEFAULTS.registre0kg = { 'CASINO BARRIERE': true }; DEFAULTS.regGroupes = { 'MONTJOYE': true };
 
   const CODE_UE = { 'ALUMINIUM': '17.04.02', 'ALUMINIUM CANETTE': '17.04.02', 'BATTERIE SANS PLOMB': '16.06.02*', 'BIODECHET': '20.01.08', 'BOIS': '17.02.01', 'CARTON': '15.01.01', 'DEEE': '16.02.09*', 'EMBALLAGE RECYCLABLE': '15.01.06', 'ENCOMBRANT': '20.01.21', 'ENCRE TONNER': '08.03.18', 'FERRAILLE': '19.12.02', 'MOBILIER': '20.03.07', 'NEON': '20.01.21*', 'PAPIER': '20.01.01', 'PILE': '16.01.01*', 'PLASTIQUE': '15.01.02', 'VERRE': '15.01.07', 'VETEMENT': '20.01.10', 'ARCHIVE': '20.01.01', 'DIB': '/', 'CAPSULE CAFE': '/', 'EMBALLAGE PLASTIQUE': '15.01.02', 'ORDURE MENAGERE': '/', 'PAPIER CONFIDENTIEL': '20.01.01', 'AMPOULE': '20.01.21*' };
   const TRAIT = { 'PAPIER': 'R.3', 'CARTON': 'R.3', 'BOIS': 'R.3', 'BIODECHET': 'R.3', 'ALUMINIUM CANETTE': 'R.4', 'PILE': 'R.1', 'CAPSULE CAFE': '/', 'DEEE': 'R.5', 'DIB': '/', 'EMBALLAGE PLASTIQUE': 'R.3', 'EMBALLAGE RECYCLABLE': 'R.3', 'ENCRE TONNER': 'R.5', 'FERRAILLE': 'R.4', 'MOBILIER': 'R.3', 'PLASTIQUE': 'R.3', 'VERRE': 'R.3', 'ORDURE MENAGERE': '/', 'PAPIER CONFIDENTIEL': 'R.3', 'AMPOULE': 'R.5', 'NEON': 'R.5', 'VETEMENT': 'R.3' };
@@ -978,8 +978,12 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     for (const reg of registres) {
       const fk = regKey(reg);
       let ts = null;
+      // registre de groupe : tous les sites dont le nom commence pareil (ex. tous les MONTJOYE dans le registre MONTJOYE SIÈGE)
+      const grp = Object.keys(corr.regGroupes || {}).find(g => corr.regGroupes[g] && NC(reg.client).startsWith(NC(g)));
+      reg.groupe = !!grp;
+      if (grp) ts = targets.filter(x => NC(x).startsWith(NC(grp)));
       const saved = corr.registres[fk] || corr.registres[N(reg.client)];
-      if (saved) ts = String(saved).split('||').filter(Boolean);
+      if (!ts && saved) ts = String(saved).split('||').filter(Boolean);
       const nc = N(reg.client);
       if (!ts) { const t = targets.find(x => N(x) === nc) || targets.find(x => NC(x) === NC(reg.client)); if (t) ts = [t]; }
       if (!ts && /CAP SUD/.test(nc)) { const t = targets.find(x => N(x) === 'MARCHE U'); if (t) ts = [t]; }
@@ -1046,7 +1050,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         const batiment = / \/ /.test(String(a.dac.client)) ? String(a.dac.client).split(' / ').pop().trim() : '';
         // site collecté : nom du DAC quand il n'est pas celui du registre (client à plusieurs sites, ex. MONTJOYE CAGNES SUR MER AED)
         const rs = String(a.dac.client).trim(), autreSite = reg.client && NC(rs) !== NC(reg.client) ? rs : '';
-        const site = batiment || (reg.targets.length > 1 ? a.site : '') || (corr.siteRegistre !== false && autreSite && similar(NC(rs), NC(reg.client)) < 0.85 ? autreSite : '');
+        const site = batiment || (reg.groupe ? autreSite || a.site : '') || (reg.targets.length > 1 ? a.site : '') || (corr.siteRegistre !== false && autreSite && similar(NC(rs), NC(reg.client)) < 0.85 ? autreSite : '');
         const bonTxt = isMU ? rs + '\n' + 'N°' + a.dac.bon : site ? site + '\n' + 'N°' + a.dac.bon : 'N°' + a.dac.bon;
         // même texte que la liste déroulante du registre, s'il y en a une
         const dl = reg.lists.deroulante || [];
