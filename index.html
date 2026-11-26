@@ -128,7 +128,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <p class="msg" id="outMsg"></p>
   </section>
 
-  <p class="msg" id="version">Version du 26/11/2026 11:45</p>
+  <p class="msg" id="version">Version du 26/11/2026 16:00</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -895,7 +895,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     'BIO DECHETS|': 'BIODECHET', 'BOIS|': 'BOIS', 'DEEE|': 'DEEE', 'FERRAILLES|': 'FERRAILLE', 'AMPOULES|': 'AMPOULE', 'NEONS|': 'NEON', 'PILES|': 'PILE',
     'EMBALLAGES RECYCLABLES|': 'EMBALLAGE RECYCLABLE', 'ORDURES MENAGERES|': 'ORDURE MENAGERE', 'ORDURES MENAGERES|MEGOTS': 'ORDURE MENAGERE', 'MOBILIERS|': 'MOBILIER', 'VETEMENTS|': 'VETEMENT', 'CARTOUCHES|': 'ENCRE TONNER'
   };
-  DEFAULTS.regTypes = REG_TYPES; DEFAULTS.registres = {}; DEFAULTS.exutoires = {}; DEFAULTS.ponctuels = {};
+  DEFAULTS.regTypes = REG_TYPES; DEFAULTS.registres = {}; DEFAULTS.exutoires = {}; DEFAULTS.ponctuels = {}; DEFAULTS.registre0kg = { 'CASINO BARRIERE': true };
 
   const CODE_UE = { 'ALUMINIUM': '17.04.02', 'ALUMINIUM CANETTE': '17.04.02', 'BATTERIE SANS PLOMB': '16.06.02*', 'BIODECHET': '20.01.08', 'BOIS': '17.02.01', 'CARTON': '15.01.01', 'DEEE': '16.02.09*', 'EMBALLAGE RECYCLABLE': '15.01.06', 'ENCOMBRANT': '20.01.21', 'ENCRE TONNER': '08.03.18', 'FERRAILLE': '19.12.02', 'MOBILIER': '20.03.07', 'NEON': '20.01.21*', 'PAPIER': '20.01.01', 'PILE': '16.01.01*', 'PLASTIQUE': '15.01.02', 'VERRE': '15.01.07', 'VETEMENT': '20.01.10', 'ARCHIVE': '20.01.01', 'DIB': '/', 'CAPSULE CAFE': '/', 'EMBALLAGE PLASTIQUE': '15.01.02', 'ORDURE MENAGERE': '/', 'PAPIER CONFIDENTIEL': '20.01.01', 'AMPOULE': '20.01.21*' };
   const TRAIT = { 'PAPIER': 'R.3', 'CARTON': 'R.3', 'BOIS': 'R.3', 'BIODECHET': 'R.3', 'ALUMINIUM CANETTE': 'R.4', 'PILE': 'R.1', 'CAPSULE CAFE': '/', 'DEEE': 'R.5', 'DIB': '/', 'EMBALLAGE PLASTIQUE': 'R.3', 'EMBALLAGE RECYCLABLE': 'R.3', 'ENCRE TONNER': 'R.5', 'FERRAILLE': 'R.4', 'MOBILIER': 'R.3', 'PLASTIQUE': 'R.3', 'VERRE': 'R.3', 'ORDURE MENAGERE': '/', 'PAPIER CONFIDENTIEL': 'R.3', 'AMPOULE': 'R.5', 'NEON': 'R.5', 'VETEMENT': 'R.3' };
@@ -1019,7 +1019,8 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       const acc = new Map();
       for (const l of P.lignes) {
         if (l.type !== 'clients' || l.status !== 'ok' || !tset.has(N(l.target))) continue;
-        if (!(l.l.poidsKg > 0)) continue;
+        // passages à 0 kg : au registre seulement pour les clients qui le demandent (ex. CASINO BARRIERE)
+        if (!(l.l.poidsKg > 0) && !Object.keys(corr.registre0kg || {}).some(c => corr.registre0kg[c] && (NC(l.target).includes(NC(c)) || NC(reg.client).includes(NC(c))))) continue;
         const k = N(l.row.dechet) + '|' + N(l.row.detail);
         const type = corr.regTypes[k] || corr.regTypes[N(l.row.dechet) + '|'];
         if (!type) { if (!R.issues.some(i => i.kind === 'regtype' && i.k === k)) R.issues.push({ kind: 'regtype', reg, k, msg: 'Registre ' + reg.client + ' : quel type de déchet pour « ' + l.row.dechet + (l.row.detail ? ' ' + l.row.detail : '') + ' » ?', options: reg.lists.types }); continue; }
@@ -1033,6 +1034,10 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         if (deja) { bucket.deja++; continue; }
         const d = a.dests[0];
         let exu = d ? (corr.exutoires[N(d.nom) + '|' + N(a.type)] || exutoireAuto(d.nom, a.type) || corr.exutoires[N(d.nom)]) : exutoireAuto('', a.type);
+        if (!exu && !d) { // pas de destinataire sur le DAC (souvent un passage à 0 kg) : même exutoire que la dernière fois dans ce registre
+          const prec = reg.rows.filter(r => N(r[reg.map.type]) === N(a.type) && r[reg.map.exu]).pop();
+          if (prec) exu = String(prec[reg.map.exu]);
+        }
         if (!exu) {
           const ik = 'exu|' + (d ? N(d.nom) : '') + '|' + N(a.type);
           if (!R.issues.some(i => i.ik === ik)) R.issues.push({ kind: 'exutoire', ik, reg, dest: d, type: a.type, msg: 'Exutoire final à inscrire au registre pour ' + a.type + (d ? ' déposé chez « ' + d.nom + ' »' : ' (pas de destinataire sur le DAC)') + ' : choisis dans la liste ou « Autre » pour l\'écrire', options: (d ? [{ value: d.nom + (d.adresse ? '\n' + d.adresse : ''), label: 'Destinataire du DAC : ' + d.nom + (d.adresse ? ' ' + d.adresse : '') }] : []).concat(Object.values(EXU).map(e => ({ value: e, label: e })), reg.lists.exutoires.map(e => ({ value: e, label: e }))), libre: true, dac: a.dac });
