@@ -128,7 +128,16 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <p class="msg" id="outMsg"></p>
   </section>
 
-  <p class="msg" id="version">Version du 26/11/2026 16:15</p>
+  <section class="step hide" id="stepRange">
+    <h2>4. Ranger sur le serveur</h2>
+    <p class="msg">Range chaque DAC dans le dossier DAC du client et enregistre les registres mis à jour à leur place, dans le dossier ENTREPRISES du serveur. Fonctionne avec Chrome ou Edge.</p>
+    <div class="out"><button type="button" id="btnDossier">Choisir le dossier ENTREPRISES</button><button type="button" id="btnRanger" disabled>Ranger les DAC et enregistrer les registres</button></div>
+    <p class="msg"><a href="#" id="lnkChanger" class="hide">changer de dossier</a></p>
+    <p class="msg" id="rangeMsg"></p>
+    <div id="rangeList"></div>
+  </section>
+
+  <p class="msg" id="version">Version du 26/11/2026 17:00</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -895,7 +904,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     'BIO DECHETS|': 'BIODECHET', 'BOIS|': 'BOIS', 'DEEE|': 'DEEE', 'FERRAILLES|': 'FERRAILLE', 'AMPOULES|': 'AMPOULE', 'NEONS|': 'NEON', 'PILES|': 'PILE',
     'EMBALLAGES RECYCLABLES|': 'EMBALLAGE RECYCLABLE', 'ORDURES MENAGERES|': 'ORDURE MENAGERE', 'ORDURES MENAGERES|MEGOTS': 'ORDURE MENAGERE', 'MOBILIERS|': 'MOBILIER', 'VETEMENTS|': 'VETEMENT', 'CARTOUCHES|': 'ENCRE TONNER'
   };
-  DEFAULTS.regTypes = REG_TYPES; DEFAULTS.registres = {}; DEFAULTS.exutoires = {}; DEFAULTS.ponctuels = {}; DEFAULTS.registre0kg = { 'CASINO BARRIERE': true }; DEFAULTS.regGroupes = { 'MONTJOYE': true };
+  DEFAULTS.regTypes = REG_TYPES; DEFAULTS.registres = {}; DEFAULTS.exutoires = {}; DEFAULTS.ponctuels = {}; DEFAULTS.registre0kg = { 'CASINO BARRIERE': true }; DEFAULTS.regGroupes = { 'MONTJOYE': true }; DEFAULTS.dossiers = {};
 
   const CODE_UE = { 'ALUMINIUM': '17.04.02', 'ALUMINIUM CANETTE': '17.04.02', 'BATTERIE SANS PLOMB': '16.06.02*', 'BIODECHET': '20.01.08', 'BOIS': '17.02.01', 'CARTON': '15.01.01', 'DEEE': '16.02.09*', 'EMBALLAGE RECYCLABLE': '15.01.06', 'ENCOMBRANT': '20.01.21', 'ENCRE TONNER': '08.03.18', 'FERRAILLE': '19.12.02', 'MOBILIER': '20.03.07', 'NEON': '20.01.21*', 'PAPIER': '20.01.01', 'PILE': '16.01.01*', 'PLASTIQUE': '15.01.02', 'VERRE': '15.01.07', 'VETEMENT': '20.01.10', 'ARCHIVE': '20.01.01', 'DIB': '/', 'CAPSULE CAFE': '/', 'EMBALLAGE PLASTIQUE': '15.01.02', 'ORDURE MENAGERE': '/', 'PAPIER CONFIDENTIEL': '20.01.01', 'AMPOULE': '20.01.21*' };
   const TRAIT = { 'PAPIER': 'R.3', 'CARTON': 'R.3', 'BOIS': 'R.3', 'BIODECHET': 'R.3', 'ALUMINIUM CANETTE': 'R.4', 'PILE': 'R.1', 'CAPSULE CAFE': '/', 'DEEE': 'R.5', 'DIB': '/', 'EMBALLAGE PLASTIQUE': 'R.3', 'EMBALLAGE RECYCLABLE': 'R.3', 'ENCRE TONNER': 'R.5', 'FERRAILLE': 'R.4', 'MOBILIER': 'R.3', 'PLASTIQUE': 'R.3', 'VERRE': 'R.3', 'ORDURE MENAGERE': '/', 'PAPIER CONFIDENTIEL': 'R.3', 'AMPOULE': 'R.5', 'NEON': 'R.5', 'VETEMENT': 'R.3' };
@@ -1277,7 +1286,7 @@ const C = window.DacCore;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const S = { dacs: [], reports: { clients: null, sncf: null }, files: [], saved: {}, corr: C.mergeCorr({}), plan: null, db: null, bons: {}, registres: [], R: null };
-const TYPES = { clients: 'Client', sncfSites: 'Site SNCF', flux: 'Déchet', sncfFlux: 'Déchet SNCF', cont: 'Contenant', sncfCont: 'Contenant SNCF', registres: 'Registre', exutoires: 'Exutoire final', regTypes: 'Type au registre', ponctuels: 'Client ponctuel sans registre' };
+const TYPES = { clients: 'Client', sncfSites: 'Site SNCF', flux: 'Déchet', sncfFlux: 'Déchet SNCF', cont: 'Contenant', sncfCont: 'Contenant SNCF', registres: 'Registre', exutoires: 'Exutoire final', regTypes: 'Type au registre', ponctuels: 'Client ponctuel sans registre', dossiers: 'Dossier client' };
 
 /* ---- correspondances : stockage ---- */
 async function loadCorr() {
@@ -1350,7 +1359,7 @@ async function addFiles(list) {
         const rep = await C.analyseReport(JSZip, buf, f.name);
         if (!rep.type) {
           const reg = await C.analyseRegistre(JSZip, buf, f.name);
-          if (reg) { S.files = S.files.filter(x => x === entry || !(x.reg && x.reg.fileName === f.name)); S.registres = S.registres.filter(r => r.fileName !== f.name); S.registres.push(reg); entry.reg = reg; entry.kind = 'Registre déchets'; entry.state = (reg.client || '?') + ' · ' + reg.rows.filter(r => r[reg.map.type] && r.r <= (reg.table ? reg.table.end : 1e9)).length + ' lignes déjà inscrites'; entry.ok = true; }
+          if (reg) { reg.mtime = f.lastModified; S.files = S.files.filter(x => x === entry || !(x.reg && x.reg.fileName === f.name)); S.registres = S.registres.filter(r => r.fileName !== f.name); S.registres.push(reg); entry.reg = reg; entry.kind = 'Registre déchets'; entry.state = (reg.client || '?') + ' · ' + reg.rows.filter(r => r[reg.map.type] && r.r <= (reg.table ? reg.table.end : 1e9)).length + ' lignes déjà inscrites'; entry.ok = true; }
           else { entry.kind = 'Excel non reconnu'; entry.state = 'ni reporting ni registre reconnu'; entry.bad = true; }
         }
         else { const old = S.files.find(x => x !== entry && x.rep && x.rep.type === rep.type); if (old) S.files.splice(S.files.indexOf(old), 1); S.reports[rep.type] = rep; entry.rep = rep; entry.kind = rep.type === 'sncf' ? 'Reporting Marché SNCF' : 'Reporting clients'; entry.state = 'onglets ' + Object.keys(rep.years).join(', '); entry.ok = true; }
@@ -1362,7 +1371,7 @@ async function addFiles(list) {
           dac = hasText ? C.parseDac(items) : null;
           if (!dac || (!dac.lignes.length && !dac.client)) { entry.state = 'scan : lecture par Claude…'; renderFiles(); dac = await readScan(await pdfPageImages(doc)); }
         } else { entry.state = 'photo : lecture par Claude…'; renderFiles(); dac = await readScan([f]); }
-        dac.file = f.name;
+        dac.file = f.name; dac.src = f;
         const dup = S.dacs.find(d => d.bon && d.bon === dac.bon && d.date === dac.date);
         if (dup) { entry.kind = 'DAC en double'; entry.state = 'N°' + dac.bon + ' déjà déposé'; entry.bad = true; }
         else { S.dacs.push(dac); entry.dac = dac; entry.kind = 'DAC N°' + (dac.bon || '?') + (dac.scan ? ' · lu sur scan' : ''); entry.state = (dac.client || 'client ?') + ' · ' + (dac.date ? C.isoToFr(dac.date) : 'date ?') + ' · ' + dac.lignes.length + ' ligne(s)'; entry.ok = !dac.erreurs.length; entry.bad = !!dac.erreurs.length; }
@@ -1389,7 +1398,7 @@ const drop = $('drop');
 ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', e => addFiles([...e.dataTransfer.files]));
 $('pick').addEventListener('change', e => { addFiles([...e.target.files]); e.target.value = ''; });
-$('btnClear').addEventListener('click', () => { S.bons = {}; S.registres = []; S.dacs = []; S.files = []; S.reports = { clients: null, sncf: null }; S.plan = null; renderFiles(); $('stepCheck').classList.add('hide'); $('stepOut').classList.add('hide'); $('loadMsg').textContent = ''; });
+$('btnClear').addEventListener('click', () => { S.bons = {}; S.registres = []; S.dacs = []; S.files = []; S.reports = { clients: null, sncf: null }; S.plan = null; renderFiles(); $('stepCheck').classList.add('hide'); $('stepOut').classList.add('hide'); $('stepRange').classList.add('hide'); $('loadMsg').textContent = ''; });
 $('optEcraser').addEventListener('change', () => run());
 $('optZeros').addEventListener('change', () => run());
 $('optRegOui').addEventListener('change', () => { if (S.plan) render(); });
@@ -1497,7 +1506,8 @@ function render() {
   $('outMsg').classList.remove('err');
   $('outMsg').textContent = todo ? 'Il reste ' + todo + ' choix à faire : les lignes concernées ne seront pas remplies tant qu\'ils ne sont pas faits.' : 'Le fichier garde son nom (le reporting SNCF prend la date du jour). Remets-le ensuite sur le serveur à la place de l\'ancien.';
   }
-  $('stepOut').classList.remove('hide');
+  $('stepOut').classList.remove('hide'); $('stepRange').classList.remove('hide');
+  if (typeof renderRange === 'function' && FS.index) renderRange();
 }
 $('issues').addEventListener('change', e => { const s2 = e.target.closest('select[data-i]'); if (s2) { const inp = $('issues').querySelector('input[data-libre="' + s2.dataset.i + '"]'); if (inp) { inp.classList.toggle('hide', s2.value !== '__autre'); if (s2.value === '__autre') inp.focus(); } } });
 $('issues').addEventListener('change', e => { const sel = e.target.closest('select[data-gk]'); if (!sel) return; S.bons[sel.dataset.gk] = sel.value; run(); });
@@ -1566,6 +1576,124 @@ $('outBtns').addEventListener('click', async e => {
     $('outMsg').textContent = out.name + ' : ' + out.lignes + ' ligne(s) remplie(s). Remets-le sur le serveur à la place de l\'ancien.';
   } catch (err) { $('outMsg').textContent = err && err.code === 'declined' ? 'Téléchargement annulé.' : 'Échec : ' + ((err && err.message) || err); }
   finally { b.disabled = false; }
+});
+
+/* ---- 4. ranger les DAC et les registres sur le serveur (Chrome / Edge) ---- */
+const FS = { root: null, index: null, plan: [] };
+const idb = (mode, fn) => new Promise((res, rej) => { const o = indexedDB.open('lecteur-dac', 1); o.onupgradeneeded = () => o.result.createObjectStore('h'); o.onerror = () => rej(o.error); o.onsuccess = () => { try { const tx = o.result.transaction('h', mode); const r = fn(tx.objectStore('h')); tx.oncomplete = () => res(r && r.result); tx.onerror = () => rej(tx.error); } catch (e) { rej(e); } }; });
+const idbGet = k => idb('readonly', s => s.get(k)), idbSet = (k, v) => idb('readwrite', s => s.put(v, k));
+(async () => {
+  if (!('showDirectoryPicker' in window)) { $('btnDossier').disabled = true; $('rangeMsg').textContent = 'Pour ranger automatiquement, ouvre l\'outil avec Chrome ou Edge.'; return; }
+  try { const h = await idbGet('entreprises'); if (h) { FS.root = h; $('btnDossier').textContent = 'Autoriser l\'accès au dossier ' + h.name; } } catch (e) {}
+})();
+const MOTS_SAUTES = /\b(DAC|DACS|BON|BONS|CERTIFICAT|CERTIFICATS|CONTRAT|CONTRATS|RECAPITULATIF|RECAPITULATIFS|APPORTEUR|PDF|SCAN|SCANS|FACTURE|FACTURES|PESEE)\b/;
+async function indexer(root) {
+  const regs = [], clients = [], an = String(new Date().getFullYear());
+  let n = 0;
+  async function walk(dir, chemin, client, depth) {
+    n++; if (n % 10 === 0) $('rangeMsg').textContent = 'Lecture des dossiers du serveur… ' + n + ' dossiers';
+    for await (const [name, h] of dir.entries()) {
+      if (h.kind === 'file') { if (/^REGISTRE.*\.xlsx$/i.test(name)) regs.push({ name, dir, client, chemin: chemin.concat(name).join('\\') }); continue; }
+      if (depth >= 5) continue;
+      const nn = C.N(name);
+      if (depth === 1 && /\bDACS?\b/.test(nn) && (!client.dacDir || nn === 'DAC')) client.dacDir = name;
+      if (MOTS_SAUTES.test(nn)) continue;
+      if (/^20\d\d$/.test(nn) && nn < String(+an - 1)) continue;
+      await walk(h, chemin.concat(name), client, depth + 1);
+    }
+  }
+  for await (const [name, h] of root.entries()) if (h.kind === 'directory') clients.push({ name, h });
+  for (const c of clients) await walk(c.h, [c.name], c, 1);
+  return { regs, clients };
+}
+$('btnDossier').addEventListener('click', async () => {
+  try {
+    let h = FS.root;
+    if (h && (await h.queryPermission({ mode: 'readwrite' })) !== 'granted' && (await h.requestPermission({ mode: 'readwrite' })) !== 'granted') h = null;
+    if (!h || FS.changer) h = await window.showDirectoryPicker({ id: 'entreprises', mode: 'readwrite' });
+    FS.changer = false; FS.root = h; try { await idbSet('entreprises', h); } catch (e) {}
+    $('btnDossier').textContent = 'Dossier : ' + h.name; $('btnDossier').disabled = true; $('lnkChanger').classList.remove('hide');
+    $('rangeMsg').textContent = 'Lecture des dossiers du serveur…';
+    FS.index = await indexer(h);
+    $('rangeMsg').textContent = FS.index.clients.length + ' dossiers clients et ' + FS.index.regs.length + ' registres trouvés dans ' + h.name + '.';
+    renderRange();
+  } catch (e) { if (e && e.name === 'AbortError') return; $('rangeMsg').textContent = 'Accès impossible : ' + ((e && e.message) || e); }
+});
+$('lnkChanger').addEventListener('click', e => { e.preventDefault(); FS.changer = true; $('btnDossier').disabled = false; $('btnDossier').textContent = 'Choisir le dossier ENTREPRISES'; });
+function dossierClient(noms) {
+  const idx = FS.index; if (!idx) return null;
+  for (const nm of noms) { const v = (S.saved.dossiers || {})[C.N(nm)]; if (v) { const c = idx.clients.find(x => x.name === v); if (c) return c; } }
+  for (const nm of noms) {
+    const nc = C.N(nm).replace(/[^A-Z0-9]/g, '');
+    if (!nc) continue;
+    let hits = idx.clients.filter(c => C.N(c.name).replace(/[^A-Z0-9]/g, '') === nc);
+    if (hits.length === 1) return hits[0];
+    hits = idx.clients.filter(c => { const cc = C.N(c.name).replace(/[^A-Z0-9]/g, ''); return cc.length >= 4 && (nc.startsWith(cc) || cc.startsWith(nc)); });
+    if (hits.length) return hits.sort((a, b) => b.name.length - a.name.length)[0];
+  }
+  return null;
+}
+function regDuServeur(reg) {
+  const hits = FS.index.regs.filter(x => x.name === reg.fileName);
+  return hits.find(x => x.chemin.includes(String(new Date().getFullYear()))) || hits[0] || null;
+}
+function renderRange() {
+  if (!FS.index || !S.plan) { $('rangeList').innerHTML = ''; $('btnRanger').disabled = true; return; }
+  const P = S.plan, plan = [];
+  for (const reg of S.registres) {
+    const b = S.R && S.R.parReg.get(reg); if (!b || !b.lignes.length) continue;
+    const s = regDuServeur(reg);
+    if (s) plan.push({ kind: 'reg', reg, dir: s.dir, client: s.client, label: 'Registre ' + reg.client, dest: s.chemin, note: 'remplacé (+' + b.lignes.length + ' ligne' + (b.lignes.length > 1 ? 's' : '') + ')' });
+    else { const c = dossierClient([...(reg.targets || []), reg.client]); plan.push({ kind: 'reg', reg, client: c, sous: 'REGISTRE DECHETS', nouveauClient: c ? '' : (reg.targets && reg.targets[0]) || reg.client, label: 'Registre ' + reg.client, dest: (c ? c.name : (reg.targets && reg.targets[0]) || reg.client) + '\\REGISTRE DECHETS\\' + reg.fileName, note: c ? 'nouveau fichier' : 'nouveau dossier client' }); }
+  }
+  for (const dac of S.dacs) {
+    if (!dac.src) continue;
+    const l = P.lignes.find(x => x.dac === dac && x.target); const target = l ? l.target : '';
+    let c = null;
+    if (target) { const reg = S.registres.find(r => (r.targets || []).some(t => C.N(t) === C.N(target))); const s = reg && regDuServeur(reg); if (s) c = s.client; else { const p = plan.find(x => x.kind === 'reg' && x.reg === reg); if (p && p.client) c = p.client; } }
+    if (!c) c = dossierClient([target, dac.client].filter(Boolean));
+    plan.push({ kind: 'dac', dac, target: target || dac.client, client: c, label: 'DAC N°' + dac.bon, dest: c ? c.name + '\\' + (sousDac(c) || 'DAC') + '\\' + dac.file : '', note: '' });
+  }
+  FS.plan = plan;
+  const opts = '<option value="">Choisir le dossier du client…</option>' + FS.index.clients.map(c => c.name).sort((a, b) => a.localeCompare(b)).map(n => '<option>' + esc(n) + '</option>').join('');
+  $('rangeList').innerHTML = plan.length ? '<table class="t"><thead><tr><th>Fichier</th><th>Rangé dans</th><th></th></tr></thead><tbody>' + plan.map((p, i) => '<tr><td>' + esc(p.label) + (p.dac ? '<br><span class="src">' + esc(p.dac.file) + '</span>' : '') + '</td><td>' +
+    (p.kind === 'dac' && !p.client ? '<select data-dos="' + i + '">' + opts + '</select> <span class="src">(' + esc(p.target) + ')</span>' : esc(p.dest)) + '</td><td class="src" data-res="' + i + '">' + esc(p.note) + '</td></tr>').join('') + '</tbody></table>' : '<p class="msg">Rien à ranger pour l\'instant.</p>';
+  $('btnRanger').disabled = !plan.length || plan.some(p => p.kind === 'dac' && !p.client);
+}
+function sousDac(c) { return c && c.dacDir ? c.dacDir : ''; }
+$('rangeList').addEventListener('change', e => { const s = e.target.closest('select[data-dos]'); if (!s || !s.value) return; const p = FS.plan[+s.dataset.dos]; setCorr('dossiers', C.N(p.target), s.value); renderRange(); });
+async function dossierDac(c) {
+  const dirs = []; for await (const [name, h] of c.h.entries()) if (h.kind === 'directory') dirs.push({ name, h });
+  const d = dirs.find(x => C.N(x.name) === 'DAC') || dirs.find(x => /\bDACS?\b/.test(C.N(x.name)));
+  if (d) return d; return { name: 'DAC', h: await c.h.getDirectoryHandle('DAC', { create: true }) };
+}
+async function ecrire(dir, name, data) { const fh = await dir.getFileHandle(name, { create: true }); const w = await fh.createWritable(); await w.write(data); await w.close(); }
+async function existe(dir, name) { try { await dir.getFileHandle(name); return true; } catch (e) { return false; } }
+$('btnRanger').addEventListener('click', async () => {
+  const b = $('btnRanger'); b.disabled = true; let ok = 0, ko = 0;
+  for (let i = 0; i < FS.plan.length; i++) {
+    const p = FS.plan[i], cell = $('rangeList').querySelector('[data-res="' + i + '"]');
+    cell.textContent = '…';
+    try {
+      if (p.kind === 'dac') {
+        const d = await dossierDac(p.client);
+        if (await existe(d.h, p.dac.file)) { cell.textContent = 'déjà rangé dans ' + d.name; ok++; continue; }
+        await ecrire(d.h, p.dac.file, p.dac.src); cell.textContent = '✓ rangé dans ' + d.name; ok++;
+      } else {
+        const bk = S.R.parReg.get(p.reg); const out = await C.buildRegistre(JSZip, p.reg, bk.lignes);
+        let dir = p.dir;
+        if (dir && p.reg.mtime) { // sécurité : ne pas écraser un registre modifié sur le serveur après le dépôt
+          let cur = null; try { cur = await (await dir.getFileHandle(p.reg.fileName)).getFile(); } catch (e) {}
+          if (cur && cur.lastModified > p.reg.mtime + 2000) { cell.textContent = '✗ registre modifié sur le serveur depuis ton dépôt (par une collègue ?) : redépose la version du serveur et recommence'; cell.classList.add('err'); ko++; continue; }
+        }
+        if (!dir) { let c = p.client; if (!c) { const h = await FS.root.getDirectoryHandle(p.nouveauClient.replace(/[\\/:*?"<>|]+/g, ' ').trim(), { create: true }); c = { name: h.name, h }; FS.index.clients.push(c); } dir = await c.h.getDirectoryHandle(p.sous, { create: true }); }
+        await ecrire(dir, p.reg.fileName, out.data); cell.textContent = '✓ enregistré (' + out.lignes + ' ligne' + (out.lignes > 1 ? 's' : '') + ' ajoutée' + (out.lignes > 1 ? 's' : '') + ')'; ok++;
+      }
+    } catch (e) { ko++; cell.textContent = '✗ ' + (/NoModification|InvalidState|lock|busy/i.test((e && e.name) + (e && e.message)) ? 'fichier ouvert dans Excel ? Ferme-le et recommence' : ((e && e.message) || e)); cell.classList.add('err'); }
+  }
+  T.telech++; T.send();
+  $('rangeMsg').textContent = 'Terminé : ' + ok + ' fichier(s) rangé(s)' + (ko ? ', ' + ko + ' erreur(s) (voir la liste)' : '') + '.';
+  b.disabled = false;
 });
 
 /* ---- suivi du temps passé (voir la note de service) ---- */
