@@ -132,12 +132,13 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <h2>4. Ranger sur le serveur</h2>
     <p class="msg">Range chaque DAC dans le dossier DAC du client et enregistre les registres mis à jour à leur place, dans le dossier ENTREPRISES du serveur. Fonctionne avec Chrome ou Edge.</p>
     <div class="out"><button type="button" id="btnDossier">Choisir le dossier ENTREPRISES</button><button type="button" id="btnRanger" disabled>Ranger les DAC et enregistrer les registres</button></div>
+    <p class="msg"><label><input type="checkbox" id="optCopie"> Faire aussi une copie dans le dossier de contrôle</label> <button type="button" class="ghost small" id="btnCopie">Choisir le dossier de contrôle</button> <span id="copieNom"></span></p>
     <p class="msg"><a href="#" id="lnkChanger" class="hide">changer de dossier</a></p>
     <p class="msg" id="rangeMsg"></p>
     <div id="rangeList"></div>
   </section>
 
-  <p class="msg" id="version">Version du 26/11/2026 17:30</p>
+  <p class="msg" id="version">Version du 26/11/2026 17:45</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -1643,7 +1644,7 @@ function renderRange() {
   for (const reg of S.registres) {
     const b = S.R && S.R.parReg.get(reg); if (!b || !b.lignes.length) continue;
     const s = regDuServeur(reg);
-    if (s) plan.push({ kind: 'reg', reg, dir: s.dir, client: s.client, label: 'Registre ' + reg.client, dest: s.chemin, note: 'remplacé (+' + b.lignes.length + ' ligne' + (b.lignes.length > 1 ? 's' : '') + ')' });
+    if (s) plan.push({ kind: 'reg', reg, dir: s.dir, rel: s.chemin.split('\\').slice(0, -1), client: s.client, label: 'Registre ' + reg.client, dest: s.chemin, note: 'remplacé (+' + b.lignes.length + ' ligne' + (b.lignes.length > 1 ? 's' : '') + ')' });
     else { const c = dossierClient([...(reg.targets || []), reg.client]); plan.push({ kind: 'reg', reg, client: c, sous: 'REGISTRE DECHETS', nouveauClient: c ? '' : (reg.targets && reg.targets[0]) || reg.client, label: 'Registre ' + reg.client, dest: (c ? c.name : (reg.targets && reg.targets[0]) || reg.client) + '\\REGISTRE DECHETS\\' + reg.fileName, note: c ? 'nouveau fichier' : 'nouveau dossier client' }); }
   }
   for (const dac of S.dacs) {
@@ -1662,6 +1663,18 @@ function renderRange() {
   $('btnRanger').disabled = !plan.length || plan.some(p => p.kind === 'dac' && !p.client);
 }
 function sousDac(c) { return c && c.dacDir ? c.dacDir : ''; }
+
+FS.copie = null;
+(async () => { try { const h = await idbGet('copie'); if (h) { FS.copie = h; $('copieNom').textContent = 'Dossier de contrôle : ' + h.name + ' (accès demandé au rangement)'; $('optCopie').checked = true; } } catch (e) {} })();
+$('btnCopie').addEventListener('click', async () => {
+  try { const h = await window.showDirectoryPicker({ id: 'copie', mode: 'readwrite' }); FS.copie = h; try { await idbSet('copie', h); } catch (e) {} $('copieNom').textContent = 'Dossier de contrôle : ' + h.name; $('optCopie').checked = true; }
+  catch (e) { if (!e || e.name !== 'AbortError') $('copieNom').textContent = 'Accès impossible : ' + ((e && e.message) || e); }
+});
+async function copier(parts, name, data) {
+  let h = FS.copie;
+  for (const p of parts.filter(Boolean)) h = await h.getDirectoryHandle(p, { create: true });
+  await ecrire(h, name, data);
+}
 $('rangeList').addEventListener('change', e => { const s = e.target.closest('select[data-dos]'); if (!s || !s.value) return; const p = FS.plan[+s.dataset.dos]; setCorr('dossiers', C.N(p.target), s.value); renderRange(); });
 async function dossierDac(c) {
   const dirs = []; for await (const [name, h] of c.h.entries()) if (h.kind === 'directory') dirs.push({ name, h });
@@ -1700,15 +1713,20 @@ async function cheminDac(base, dac, noms) {
 async function ecrire(dir, name, data) { const fh = await dir.getFileHandle(name, { create: true }); const w = await fh.createWritable(); await w.write(data); await w.close(); }
 async function existe(dir, name) { try { await dir.getFileHandle(name); return true; } catch (e) { return false; } }
 $('btnRanger').addEventListener('click', async () => {
-  const b = $('btnRanger'); b.disabled = true; let ok = 0, ko = 0;
+  const b = $('btnRanger'); b.disabled = true; let ok = 0, ko = 0, kc = 0;
+  let copie = $('optCopie').checked && FS.copie;
+  if (copie) { try { if ((await FS.copie.queryPermission({ mode: 'readwrite' })) !== 'granted' && (await FS.copie.requestPermission({ mode: 'readwrite' })) !== 'granted') copie = false; } catch (e) { copie = false; } }
+  if ($('optCopie').checked && !copie) $('rangeMsg').textContent = 'Pas d\'accès au dossier de contrôle : rangement sans copie.';
+  const faireCopie = async (cell, parts, name, data) => { if (!copie) return; try { await copier(parts, name, data); cell.textContent += ' + copie'; } catch (e) { kc++; cell.textContent += ' — copie impossible : ' + ((e && e.message) || e); } };
   for (let i = 0; i < FS.plan.length; i++) {
     const p = FS.plan[i], cell = $('rangeList').querySelector('[data-res="' + i + '"]');
     cell.textContent = '…';
     try {
       if (p.kind === 'dac') {
         const d = await cheminDac(await dossierDac(p.client), p.dac, [p.target, p.dac.client].filter(Boolean));
-        if (await existe(d.h, p.dac.file)) { cell.textContent = 'déjà rangé dans ' + d.chemin; ok++; continue; }
+        if (await existe(d.h, p.dac.file)) { cell.textContent = 'déjà rangé dans ' + d.chemin; ok++; await faireCopie(cell, [p.client.name].concat(d.chemin.split('\\')), p.dac.file, p.dac.src); continue; }
         await ecrire(d.h, p.dac.file, p.dac.src); cell.textContent = '✓ rangé dans ' + d.chemin; ok++;
+        await faireCopie(cell, [p.client.name].concat(d.chemin.split('\\')), p.dac.file, p.dac.src);
       } else {
         const bk = S.R.parReg.get(p.reg); const out = await C.buildRegistre(JSZip, p.reg, bk.lignes);
         let dir = p.dir;
@@ -1716,13 +1734,15 @@ $('btnRanger').addEventListener('click', async () => {
           let cur = null; try { cur = await (await dir.getFileHandle(p.reg.fileName)).getFile(); } catch (e) {}
           if (cur && cur.lastModified > p.reg.mtime + 2000) { cell.textContent = '✗ registre modifié sur le serveur depuis ton dépôt (par une collègue ?) : redépose la version du serveur et recommence'; cell.classList.add('err'); ko++; continue; }
         }
-        if (!dir) { let c = p.client; if (!c) { const h = await FS.root.getDirectoryHandle(p.nouveauClient.replace(/[\\/:*?"<>|]+/g, ' ').trim(), { create: true }); c = { name: h.name, h }; FS.index.clients.push(c); } dir = await c.h.getDirectoryHandle(p.sous, { create: true }); }
+        let rel = p.rel;
+        if (!dir) { let c = p.client; if (!c) { const h = await FS.root.getDirectoryHandle(p.nouveauClient.replace(/[\\/:*?"<>|]+/g, ' ').trim(), { create: true }); c = { name: h.name, h }; FS.index.clients.push(c); } dir = await c.h.getDirectoryHandle(p.sous, { create: true }); rel = [c.name, p.sous]; }
         await ecrire(dir, p.reg.fileName, out.data); cell.textContent = '✓ enregistré (' + out.lignes + ' ligne' + (out.lignes > 1 ? 's' : '') + ' ajoutée' + (out.lignes > 1 ? 's' : '') + ')'; ok++;
+        await faireCopie(cell, rel || [], p.reg.fileName, out.data);
       }
     } catch (e) { ko++; cell.textContent = '✗ ' + (/NoModification|InvalidState|lock|busy/i.test((e && e.name) + (e && e.message)) ? 'fichier ouvert dans Excel ? Ferme-le et recommence' : ((e && e.message) || e)); cell.classList.add('err'); }
   }
   T.telech++; T.send();
-  $('rangeMsg').textContent = 'Terminé : ' + ok + ' fichier(s) rangé(s)' + (ko ? ', ' + ko + ' erreur(s) (voir la liste)' : '') + '.';
+  $('rangeMsg').textContent = 'Terminé : ' + ok + ' fichier(s) rangé(s)' + (copie ? (kc ? ', ' + kc + ' copie(s) impossible(s)' : ', copie faite dans ' + FS.copie.name) : '') + (ko ? ', ' + ko + ' erreur(s) (voir la liste)' : '') + '.';
   b.disabled = false;
 });
 
