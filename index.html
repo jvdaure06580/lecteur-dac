@@ -138,7 +138,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <div id="rangeList"></div>
   </section>
 
-  <p class="msg" id="version">Version du 27/11/2026 15:00</p>
+  <p class="msg" id="version">Version du 27/11/2026 15:30</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -1675,10 +1675,43 @@ $('btnCopie').addEventListener('click', async () => {
   try { const h = await window.showDirectoryPicker({ id: 'copie', mode: 'readwrite' }); FS.copie = h; try { await idbSet('copie', h); } catch (e) {} $('copieNom').textContent = 'Dossier de contrôle : ' + h.name; $('optCopie').checked = true; }
   catch (e) { if (!e || e.name !== 'AbortError') $('copieNom').textContent = 'Accès impossible : ' + ((e && e.message) || e); }
 });
-async function copier(parts, name, data) {
-  let h = FS.copie;
-  for (const p of parts.filter(Boolean)) h = await h.getDirectoryHandle(p, { create: true });
+// copie : on retrouve chaque dossier existant du dossier de contrôle, même si son nom diffère un peu
+const baseNom = x => C.N(String(x).replace(/\./g, '')).replace(/[\d\-\s]+$/, '').replace(/[^A-Z0-9]/g, '');
+async function sousDossierCopie(h, nom) {
+  const dirs = await sousDossiers(h);
+  const n = C.N(nom).replace(/[^A-Z0-9]/g, ''), b = baseNom(nom);
+  const mois = /^(\d{1,2})\s/.exec(nom);
+  const d = dirs.find(x => x.name === nom) || dirs.find(x => C.N(x.name).replace(/[^A-Z0-9]/g, '') === n)
+    || (b.length >= 4 && dirs.find(x => baseNom(x.name) === b))
+    || (mois && dirs.find(x => new RegExp('^0?' + (+mois[1]) + '\\b').test(C.N(x.name))));
+  return d ? d.h : h.getDirectoryHandle(nom, { create: true });
+}
+async function trouverFichier(h, name, depth) {
+  for await (const [n, x] of h.entries()) if (x.kind === 'file' && n === name) return h;
+  if (depth <= 0) return null;
+  for await (const [n, x] of h.entries()) if (x.kind === 'directory' && !MOTS_SAUTES.test(C.N(n))) { const r = await trouverFichier(x, name, depth - 1); if (r) return r; }
+  return null;
+}
+async function copier(parts, name, data, chercher) {
+  parts = parts.filter(Boolean);
+  let h = FS.copieRacine || FS.copie;
+  if (chercher && parts.length) { // registre : on remplace celui du dossier de contrôle, où qu'il soit rangé chez le client
+    const client = await sousDossierCopie(h, parts[0]);
+    const ou = await trouverFichier(client, name, 4);
+    if (ou) return ecrire(ou, name, data);
+  }
+  for (const p of parts) h = await sousDossierCopie(h, p);
   await ecrire(h, name, data);
+}
+// dossier de contrôle choisi un niveau trop haut : on descend dans son dossier ENTREPRISES
+async function racineCopie(h) {
+  if (!FS.index) return h;
+  const noms = new Set(FS.index.clients.map(c => C.N(c.name)));
+  const dirs = await sousDossiers(h);
+  const communs = dirs.filter(d => noms.has(C.N(d.name))).length;
+  if (communs >= 3) return h;
+  const sub = dirs.find(d => C.N(d.name) === C.N(FS.root.name)) || dirs.find(d => /ENTREPRISES/.test(C.N(d.name)));
+  return sub ? sub.h : h;
 }
 $('rangeList').addEventListener('change', e => { const s = e.target.closest('select[data-dos]'); if (!s || !s.value) return; const p = FS.plan[+s.dataset.dos]; setCorr('dossiers', C.N(p.target), s.value); renderRange(); });
 async function dossierDac(c) {
@@ -1721,8 +1754,9 @@ $('btnRanger').addEventListener('click', async () => {
   const b = $('btnRanger'); b.disabled = true; let ok = 0, ko = 0, kc = 0;
   let copie = $('optCopie').checked && FS.copie;
   if (copie) { try { if ((await FS.copie.queryPermission({ mode: 'readwrite' })) !== 'granted' && (await FS.copie.requestPermission({ mode: 'readwrite' })) !== 'granted') copie = false; } catch (e) { copie = false; } }
+  if (copie) { try { copie = await racineCopie(FS.copie); FS.copieRacine = copie; } catch (e) {} }
   if ($('optCopie').checked && !copie) $('rangeMsg').textContent = 'Pas d\'accès au dossier de contrôle : rangement sans copie.';
-  const faireCopie = async (cell, parts, name, data) => { if (!copie) return; try { await copier(parts, name, data); cell.textContent += ' + copie'; } catch (e) { kc++; cell.textContent += ' — copie impossible : ' + ((e && e.message) || e); } };
+  const faireCopie = async (cell, parts, name, data, chercher) => { if (!copie) return; try { await copier(parts, name, data, chercher); cell.textContent += ' + copie'; } catch (e) { kc++; cell.textContent += ' — copie impossible : ' + ((e && e.message) || e); } };
   for (let i = 0; i < FS.plan.length; i++) {
     const p = FS.plan[i], cell = $('rangeList').querySelector('[data-res="' + i + '"]');
     cell.textContent = '…';
@@ -1742,7 +1776,7 @@ $('btnRanger').addEventListener('click', async () => {
         let rel = p.rel;
         if (!dir) { let c = p.client; if (!c) { const h = await FS.root.getDirectoryHandle(p.nouveauClient.replace(/[\\/:*?"<>|]+/g, ' ').trim(), { create: true }); c = { name: h.name, h }; FS.index.clients.push(c); } dir = await c.h.getDirectoryHandle(p.sous, { create: true }); rel = [c.name, p.sous]; }
         await ecrire(dir, p.reg.fileName, out.data); cell.textContent = '✓ enregistré (' + out.lignes + ' ligne' + (out.lignes > 1 ? 's' : '') + ' ajoutée' + (out.lignes > 1 ? 's' : '') + ')'; ok++;
-        await faireCopie(cell, rel || [], p.reg.fileName, out.data);
+        await faireCopie(cell, rel || [], p.reg.fileName, out.data, true);
       }
     } catch (e) { ko++; cell.textContent = '✗ ' + (/NoModification|InvalidState|lock|busy/i.test((e && e.name) + (e && e.message)) ? 'fichier ouvert dans Excel ? Ferme-le et recommence' : ((e && e.message) || e)); cell.classList.add('err'); }
   }
