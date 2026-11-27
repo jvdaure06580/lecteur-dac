@@ -138,7 +138,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <div id="rangeList"></div>
   </section>
 
-  <p class="msg" id="version">Version du 26/11/2026 17:45</p>
+  <p class="msg" id="version">Version du 27/11/2026 14:30</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -622,10 +622,12 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
           if (freres.length) {
             const vol = volOf;
             const vl = x => vol(x.contenant) || vol(x.flux);
-            const ok = (rc, x) => NC(rc) === NC(x.contenant) || (vol(rc) && vol(rc) === vl(x));
+            // même contenant : même nom, même volume, ou sans volume sur le DAC le même genre (BAC, ROLL, SUPPORT…)
+            const ok = (rc, x) => NC(rc) === NC(x.contenant) || (vol(rc) && vol(rc) === vl(x)) || (!vl(x) && motCont(rc) && motCont(rc) === motCont(x.contenant));
             const compat = c.filter(r => ok(r.cont, l));
             if (compat.length) c = compat;
-            else if (vl(l) && c.every(r => vol(r.cont) || freres.some(x => ok(r.cont, x)))) c = [];
+            else if (freres.some(x => c.some(r => ok(r.cont, x)))) c = []; // la ligne prévue est celle d'un autre contenant du DAC
+            else if (vl(l) && c.every(r => vol(r.cont))) c = [];
           }
         }
         const dejaVu = Y.rows.some(r => !r.virtual && NC(r.client) === NC(target) && NC(r.dechet) === NC(dech) && NC(r.detail) === NC(det) && r.poids !== '' && r.poids != null);
@@ -692,7 +694,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
       const rec = (reports[a.type].bonsByDate || {})[r.date];
       if (filled && !r.virtual && rec && a.sources.some(s => rec.has(s.dac.bon))) {
         const neuves = a.sources.filter(s => !rec.has(s.dac.bon));
-        if (!neuves.length) a.etat = 'identique';
+        if (!neuves.length) a.etat = opts.ecraser && !same ? 'different' : 'identique'; // « Remplacer » : on corrige une ligne déjà saisie
         else {
           const kg = neuves.reduce((t, s) => t + (s.l.poidsKg || 0), 0), q = neuves.reduce((t, s) => t + (s.l.qte || 0), 0);
           a.vals = { poids: a.type === 'sncf' ? round((+r.poids || 0) + kg / 1000, 4) : round((+r.poids || 0) + kg, 3), bon: r.bon || newBon, qte: (+r.qte || 0) + q };
@@ -700,6 +702,8 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
           P.infos.push((r.client || '') + ' le ' + isoToFr(r.date) + ' · ' + r.dechet + ' : ' + a.ajoutBons.length + ' nouveau(x) DAC ajouté(s) au total déjà saisi (' + fmtKg(kg) + ')');
         }
       }
+      // nouvelle ligne venant d'un DAC déjà compté ce jour-là (ancienne version de l'outil) : seulement avec « Remplacer »
+      if (r.virtual && !opts.ecraser && rec && a.sources.every(s => rec.has(s.dac.bon))) { a.etat = 'dejaCompte'; P.infos.push((r.client || '') + ' le ' + isoToFr(r.date) + ' · ' + r.dechet + ' ' + (r.cont || '') + ' : DAC déjà compté dans le reporting, ligne non ajoutée (coche « Remplacer les valeurs déjà saisies » pour corriger)'); }
       a.write = a.etat === 'nouveau' || a.etat === 'ajout' || a.etat === 'cumul' || (a.etat === 'different' && opts.ecraser);
       if (a.bons.length > 1 && !a.groupBon) P.infos.push((r.client || '') + ' ligne ' + r.r + ' : ' + a.bons.length + ' bons cumulés (' + a.bons.join(', ') + ')');
       a.cols = { poids: Y.map.poids, bon: Y.map.bon, qte: Y.map.qte };
@@ -747,6 +751,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     return v;
   }
   const fmtKg = v => v == null ? '?' : (Math.round(v * 10) / 10).toLocaleString('fr-FR') + ' kg';
+  function motCont(s) { return (N(s).split(/[^A-Z0-9]+/).filter(Boolean)[0] || '').replace(/S$/, ''); }
   function volOf(s) { const m = N(s).match(/(\d+(?:[.,]\d+)?)\s*(M3|L(?:ITRES?|TS?)?)(?![A-Z])/); return m ? m[1].replace(',', '.') + (m[2] === 'M3' ? 'M3' : 'L') : ''; }
   function NC(s) { return N(s).replace(/[^A-Z0-9]/g, ''); }
   function optionsClients(rep, Y) {
