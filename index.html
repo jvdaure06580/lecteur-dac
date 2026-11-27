@@ -138,7 +138,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
     <div id="rangeList"></div>
   </section>
 
-  <p class="msg" id="version">Version du 27/11/2026 14:30</p>
+  <p class="msg" id="version">Version du 27/11/2026 15:00</p>
   <section class="step">
     <details id="corrBox">
       <summary>Correspondances enregistrées</summary>
@@ -587,7 +587,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         let c = dayRows.filter(r => NC(r.dechet) === NC(dech) && NC(r.detail) === NC(det));
         if (!c.length && !det && type === 'clients') {
           // le détail du reporting (ex. GLASSINES) peut figurer comme contenant ou dans le nom du déchet sur le DAC
-          const memes = dayRows.filter(r => NC(r.dechet) === NC(dech) && !P.taken.has(type + '|' + year + '|' + r.r));
+          const memes = dayRows.filter(r => !r.virtual && NC(r.dechet) === NC(dech) && !P.taken.has(type + '|' + year + '|' + r.r));
           const t = ' ' + N(l.contenant + ' ' + l.flux) + ' ';
           const parDetail = memes.filter(r => r.detail && t.includes(' ' + N(r.detail) + ' '));
           if (parDetail.length) c = parDetail;
@@ -703,7 +703,7 @@ table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-bl
         }
       }
       // nouvelle ligne venant d'un DAC déjà compté ce jour-là (ancienne version de l'outil) : seulement avec « Remplacer »
-      if (r.virtual && !opts.ecraser && rec && a.sources.every(s => rec.has(s.dac.bon))) { a.etat = 'dejaCompte'; P.infos.push((r.client || '') + ' le ' + isoToFr(r.date) + ' · ' + r.dechet + ' ' + (r.cont || '') + ' : DAC déjà compté dans le reporting, ligne non ajoutée (coche « Remplacer les valeurs déjà saisies » pour corriger)'); }
+      if (r.virtual && !opts.ecraser && rec && a.sources.every(s => rec.has(s.dac.bon)) && Y.rows.some(x => !x.virtual && x.date === r.date && NC(x.client) === NC(r.client) && x.poids !== '' && x.poids != null)) { /* si les lignes du client ont été effacées du reporting, on les réécrit */ a.etat = 'dejaCompte'; P.infos.push((r.client || '') + ' le ' + isoToFr(r.date) + ' · ' + r.dechet + ' ' + (r.cont || '') + ' : DAC déjà compté dans le reporting, ligne non ajoutée (coche « Remplacer les valeurs déjà saisies » pour corriger)'); }
       a.write = a.etat === 'nouveau' || a.etat === 'ajout' || a.etat === 'cumul' || (a.etat === 'different' && opts.ecraser);
       if (a.bons.length > 1 && !a.groupBon) P.infos.push((r.client || '') + ' ligne ' + r.r + ' : ' + a.bons.length + ' bons cumulés (' + a.bons.join(', ') + ')');
       a.cols = { poids: Y.map.poids, bon: Y.map.bon, qte: Y.map.qte };
